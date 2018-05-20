@@ -205,17 +205,17 @@ class Converter:
             print(decode_output.replace('\r', ''))
 
 
-def convert_cfg(cfgname: str, name2sample: 'Dict[str, Sf2Sample]'):
+def convert_cfg(cfg_path: str, name2sample: 'Dict[str, Sf2Sample]'):
     # Skip tilde-folders.
-    if cfgname[0] == '~': return
+    if cfg_path[0] == '~': return
 
-    name = cfgname[:cfgname.rfind('.')]
-    samp_name = name[name.rfind('/') + 1:]
+    name = cfg_path[:cfg_path.rfind('.')]   # folder/cfg
+    cfg_name = name[name.rfind('/') + 1:]   # cfg
 
     if VERBOSE: print('~~~~~', name, '~~~~')
 
     try:
-        with open(cfgname) as cfgfile:
+        with open(cfg_path) as cfgfile:
             # TODO ruamel.yaml... maybe not, python arithmetic expressions are neat
             config = AttrDict(eval(cfgfile.read()))
 
@@ -229,12 +229,12 @@ def convert_cfg(cfgname: str, name2sample: 'Dict[str, Sf2Sample]'):
 
         # TODO dirty code, refactor into WavSample
         sample = config.get('sample', None)     # type: ISample
-        if sample or samp_name not in name2sample:
-            sample = AttrDict(sample if sample else {})
-            set_maybe(sample, 'pitch_correction', 0)
-            set_maybe(sample, 'name', samp_name)
+        if bool(sample) or cfg_name not in name2sample:     # wtf
+            sample = AttrDict(sample or {})                 # wtf
+            set_maybe(sample, 'pitch_correction', 0)        # burn set_maybe with fire
+            set_maybe(sample, 'name', cfg_name)
         else:
-            sample = name2sample[samp_name]
+            sample = name2sample[cfg_name]
         if transpose:
             sample.original_pitch -= transpose
 
@@ -272,11 +272,14 @@ def convert_cfg(cfgname: str, name2sample: 'Dict[str, Sf2Sample]'):
         raise
 
 
-def main(name):
-    sf2_file = open(name, 'rb')
-    sf2 = Sf2File(sf2_file)
-    samples = sorted(sf2.samples[:-1], key=lambda s: s.name)  # type: List[Sample]
-    name2sample = {sample.name: sample for sample in samples}  # type: Dict[str, Sample]
+def main(sf2_name):
+    if sf2_name is not None:
+        sf2_file = open(sf2_name, 'rb')
+        sf2 = Sf2File(sf2_file)
+        samples = sorted(sf2.samples[:-1], key=lambda s: s.name)  # type: List[Sf2Sample]
+        name2sample = {sample.name: sample for sample in samples}  # type: Dict[str, Sf2Sample]
+    else:
+        name2sample = {}
 
     # TODO arbitrary directory tree
     with pushd(WAV + WAV2AMK + 'samples/' + PROJECT):
@@ -301,4 +304,7 @@ def main(name):
 
 
 if __name__ == '__main__':
-    main(sys.argv[1])
+    if 1 < len(sys.argv):
+        main(sys.argv[1])
+    else:
+        main(None)
