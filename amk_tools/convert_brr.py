@@ -39,7 +39,7 @@ from plumbum.cmd import sox, brr_encoder, brr_decoder, cmd as _cmd
 # TODO command-line paths (import click)
 WAV = 'wav/'
 WAV2AMK = '../../addmusick-1.1.0-beta/'
-PROJECT = 'ds_rr/'
+PROJECT = 'idol1 final hours/'
 
 
 def set_maybe(d, key, value):
@@ -255,7 +255,7 @@ def convert_cfg(cfg_path: str, name2sample: 'Dict[str, Sf2Sample]'):
         # if isinstance(ratio, float):
         #     raise Exception('inaccurate ratio!')
         ratio = Fraction(ratio)
-        ratio = conv.convert(ratio=ratio, loop=loop, truncate=truncate, decode=True)
+        ratio = conv.convert(ratio=ratio, loop=loop, truncate=truncate, decode=True)    # FIXME command line args
         shutil.copy(conv.brrname, WAV2AMK + 'samples/' + PROJECT)
 
         wav2brr.brr_tune(sample, ratio)     # calls print
