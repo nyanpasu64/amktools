@@ -1,6 +1,3 @@
-from sf2utils.sample import Sf2Sample
-
-
 class AttrDict(dict):
     def __init__(self, seq=None, **kwargs):
         if seq is None:
