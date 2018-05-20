@@ -8,5 +8,5 @@ setup(
     license='',
     author='nyanpasu64',
     author_email='',
-    description=''
+    description='', requires=['sf2utils', 'plumbum']
 )
