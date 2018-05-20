@@ -43,11 +43,13 @@ PROJECT = 'ds_rr/'
 
 
 def set_maybe(d, key, value):
+    # TODO remove this function
     if key not in d:
         d[key] = value
 
 
 def round_frac(frac):
+    # TODO remove this function
     try:
         return round(Decimal(frac.numerator) / Decimal(frac.denominator), 20)
     except AttributeError:
@@ -77,7 +79,7 @@ total_blocks_regex = re.compile(r'^Size of file to encode : [0-9]+ samples = ([0
 loop_regex = re.compile(
     r'^Position of the loop within the BRR sample : [0-9]+ samples = ([0-9]+) BRR blocks.',
     re.MULTILINE)
-iratio_regex = re.compile(r'Resampling by effective ratio of ([0-9.]+)\.\.\.', re.MULTILINE)
+reciprocal_ratio_regex = re.compile(r'Resampling by effective ratio of ([0-9.]+)\.\.\.', re.MULTILINE)
 
 
 def search(regex, s):
@@ -94,25 +96,19 @@ class Converter:
         w = wave.open(self.wavname)
         self.rate = w.getframerate()
         self.len = w.getnframes()
-        #
-        # rate, data = wavfile.read(self.wavname)
-        # len_ = len(data)
-        # assert rate == self.rate
-        # assert len_ == self.len
+
 
     def get_len(self):
-        # return int(soxi['-s', self.wavname]().strip())
         return self.len
 
     def get_rate(self):
-        # return int(soxi['-r', self.wavname]().strip())
         return self.rate
 
     # def get_loop_len(self, loop: int):
     #     return self.get_len(self.wavname) - loop
 
     def attenuate(self, volume: Fraction):
-        # TODO: no more sox?
+        # TODO: eliminate dependency on sox
         quiet_name = self.wavname + ' attenuate.wav'
 
         args = ['-v', str(round_frac(volume)), self.wavname, quiet_name]
@@ -121,34 +117,33 @@ class Converter:
 
         self.wavname = quiet_name
 
-    def get_ratio(self, loop: int, blocks: Fraction):
-        """
-        Resample the audio file.
-        :param loop: Current loop BEGIN index.
-        :param blocks: The final LENGTH of the looped section.
-        :return: The final LOOP START INDEX.
-        """
+    # def get_ratio(self, loop: int, blocks: Fraction):
+    #     """
+    #     Resample the audio file.
+    #     :param loop: Current loop BEGIN index.
+    #     :param blocks: The final LENGTH of the looped section.
+    #     :return: The final LOOP START INDEX.
+    #     """
+    #
+    #     if loop is None:
+    #         loop = 0
+    #
+    #     looplen = self.get_len() - loop
+    #     looplen_f = blocks * 16
+    #     ratio = Fraction(looplen_f, looplen)
+    #
+    #     return ratio
 
-        if loop is None:
-            loop = 0
-
-        looplen = self.get_len() - loop
-        looplen_f = blocks * 16
-        ratio = Fraction(looplen_f, looplen)
-
-        return ratio
-
-    def convert(self, ratio: Fraction, loop: int, truncate: int = None, decode: bool = False):
+    def convert(self, ratio: Fraction, loop: int, truncate: int = None, decode: bool = False) -> Fraction:
         """
         Convert self.wavname to self.brrname, resampling by ratio.
-        :param loop: Loop begin point.
         :param ratio: Resampling ratio.
+        :param loop: Loop begin point.
         :param truncate: End of sample (loop end point).
         :param decode: Whether to decode sample back to wav.
-        :return: Effective resampling ratio (TODO -> return type)
+        :return: Effective resampling ratio
         """
-        # loop: samples
-        # TODO: -a -g
+        # TODO: why did I mention the -a -g flags?
         args = [self.wavname, self.brrname]
 
         if loop is not None:
@@ -182,20 +177,20 @@ class Converter:
         else:
             byte_offset = 0
 
-        ratio = 1 / Fraction(iratio_regex.search(output).group(1))
+        wav2brr_ratio = 1 / Fraction(reciprocal_ratio_regex.search(output).group(1))
 
         if VERBOSE: print('loop_bytes', byte_offset)
 
         if decode:
-            self.decode(ratio)
+            self.decode(wav2brr_ratio)
 
-        with open(self.brrname, 'r+b') as brrfile:
-            data = byte_offset.to_bytes(2, 'little') + brrfile.read()
+        with open(self.brrname, 'r+b') as brr_file:
+            data = byte_offset.to_bytes(2, 'little') + brr_file.read()
 
-        with open(self.brrname, 'wb') as brrfile:
-            brrfile.write(data)
+        with open(self.brrname, 'wb') as brr_file:
+            brr_file.write(data)
 
-        return ratio
+        return wav2brr_ratio
 
     def decode(self, ratio):
         args = ['-s' + str(round_frac(self.get_rate() * ratio)), self.brrname,
