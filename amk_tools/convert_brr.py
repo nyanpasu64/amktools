@@ -290,9 +290,9 @@ def main(sf2_name):
         if len(folders) != len(configs):
             raise Exception(set(folders) - set(configs))
 
-        for cfgname in sorted(glob.glob(r'*/*.cfg')):  # type: str
-            cfgname = cfgname.replace('\\', '/')
-            convert_cfg(cfgname, name2sample)
+        for cfg_path in sorted(glob.glob(r'*/*.cfg')):  # type: str
+            cfg_path = cfg_path.replace('\\', '/')
+            convert_cfg(cfg_path, name2sample)
 
     # FIXME
     os.system('build.cmd')
