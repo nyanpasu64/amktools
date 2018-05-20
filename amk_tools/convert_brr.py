@@ -11,45 +11,41 @@ from decimal import Decimal
 from fractions import Fraction
 from typing import List, Dict
 
-from sf2utils.sample import Sf2Sample as Sample
+from sf2utils.sample import Sf2Sample
 from sf2utils.sf2parse import Sf2File
 
 from amk_tools import wav2brr
+from amk_tools.util import AttrDict
+from amk_tools.wav2brr import ISample
 
-logging.root.setLevel(logging.ERROR)    # to silence overly pedantic SF2File
 
+logging.root.setLevel(logging.ERROR)  # to silence overly pedantic SF2File
 
 VERBOSE = ('--verbose' in sys.argv)
-# VERBOSE = False
 NOWRAP = True
+
 
 def path_append(*it):
     for el in it:
         os.environ['PATH'] += os.pathsep + el
 
+
 path_append(os.curdir, r'C:\Program Files (x86)\sox-14-4-2')
 
-from plumbum import FG
 # noinspection PyUnresolvedReferences
 from plumbum.cmd import sox, brr_encoder, brr_decoder, cmd as _cmd
 
 
+# TODO command-line paths (import click)
 WAV = 'wav/'
 WAV2AMK = '../../addmusick-1.1.0-beta/'
 PROJECT = 'ds_rr/'
 
 
-class AttrDict(dict):
-    def __init__(self, seq=None, **kwargs):
-        if seq is None:
-            seq = {}
-
-        super(self.__class__, self).__init__(seq, **kwargs)
-        self.__dict__ = self
-
 def set_maybe(d, key, value):
     if key not in d:
         d[key] = value
+
 
 def round_frac(frac):
     try:
@@ -59,24 +55,28 @@ def round_frac(frac):
 
 
 @contextmanager
-def pushd(newDir):
-    previousDir = os.getcwd()
-    os.chdir(newDir)
+def pushd(new_dir):
+    previous_dir = os.getcwd()
+    os.chdir(new_dir)
     yield
-    os.chdir(previousDir)
+    os.chdir(previous_dir)
 
-def cmd(*args, fg=False):
-    command = _cmd['/c'][args]
-    if fg:
-        command & FG
-    else:
-        return command()
+
+# def cmd(*args, fg=False):
+#     """ Invoke via cmd.exe """
+#     command = _cmd['/c'][args]
+#     if fg:
+#         # noinspection PyStatementEffect
+#         command & FG
+#     else:
+#         return command()
 
 
 total_blocks_regex = re.compile(r'^Size of file to encode : [0-9]+ samples = ([0-9]+) BRR blocks.',
-                               re.MULTILINE)
-loop_regex = re.compile(r'^Position of the loop within the BRR sample : [0-9]+ samples = ([0-9]+) BRR blocks.',
-                        re.MULTILINE)
+                                re.MULTILINE)
+loop_regex = re.compile(
+    r'^Position of the loop within the BRR sample : [0-9]+ samples = ([0-9]+) BRR blocks.',
+    re.MULTILINE)
 iratio_regex = re.compile(r'Resampling by effective ratio of ([0-9.]+)\.\.\.', re.MULTILINE)
 
 
@@ -88,8 +88,8 @@ class Converter:
 
     def __init__(self, name, wav='.', brr='.'):
         self.name = name
-        self.wavname = wav+'/' + name + '.wav'
-        self.brrname = brr+'/' + name + '.brr'
+        self.wavname = wav + '/' + name + '.wav'
+        self.brrname = brr + '/' + name + '.brr'
 
         w = wave.open(self.wavname)
         self.rate = w.getframerate()
@@ -108,11 +108,10 @@ class Converter:
         # return int(soxi['-r', self.wavname]().strip())
         return self.rate
 
-    def get_loop_len(self, loop:int):
-        return self.get_len(self.wavname) - loop
+    # def get_loop_len(self, loop: int):
+    #     return self.get_len(self.wavname) - loop
 
-
-    def attenuate(self, volume:Fraction):
+    def attenuate(self, volume: Fraction):
         # TODO: no more sox?
         quiet_name = self.wavname + ' attenuate.wav'
 
@@ -122,46 +121,41 @@ class Converter:
 
         self.wavname = quiet_name
 
-    def get_ratio(self, loop:int, blocks:Fraction):
+    def get_ratio(self, loop: int, blocks: Fraction):
         """
         Resample the audio file.
         :param loop: Current loop BEGIN index.
         :param blocks: The final LENGTH of the looped section.
         :return: The final LOOP START INDEX.
         """
-        # print(blocks)
-
-        # f(cyc/s) = rate(samp/s) / l(samp/cyc)
-        # f=r/l
-        # %(fl/r) = const
-        # So, %(rate) = %(loop).
 
         if loop is None:
             loop = 0
 
         looplen = self.get_len() - loop
-
-        # if ratio is not None:
-        #     blocks = Fraction(ratio * looplen, 16)
-        #     if blocks.denominator != 1:
-        #         raise Exception
-
         looplen_f = blocks * 16
         ratio = Fraction(looplen_f, looplen)
 
         return ratio
 
-
-    def convert(self, loop:int, ratio:Fraction, truncate=None, decode:bool=False):
+    def convert(self, ratio: Fraction, loop: int, truncate: int = None, decode: bool = False):
+        """
+        Convert self.wavname to self.brrname, resampling by ratio.
+        :param loop: Loop begin point.
+        :param ratio: Resampling ratio.
+        :param truncate: End of sample (loop end point).
+        :param decode: Whether to decode sample back to wav.
+        :return: Effective resampling ratio (TODO -> return type)
+        """
         # loop: samples
-        # -a -g
+        # TODO: -a -g
         args = [self.wavname, self.brrname]
 
         if loop is not None:
             args[0:0] = ['-l' + str(loop)]
 
         if True:
-            args[0:0] = ['-rl' + str(round_frac(1/ratio))]
+            args[0:0] = ['-rl' + str(round_frac(1 / ratio))]
 
         if NOWRAP:
             args[0:0] = ['-w']
@@ -175,14 +169,16 @@ class Converter:
             print('brr_encoder', ' '.join(args))
             print(output)
 
+        # If NOWRAP is True, this should never happen.
         if str(output).find('Caution : Wrapping was used.') != -1:
             if not VERBOSE: print(output)
+            assert not NOWRAP
             raise Exception('Wrapping detected!!')
 
         if loop is not None:
-            loopIdx = int(search(loop_regex, output))
-            byte_offset = loopIdx * 9
-            del loopIdx
+            loop_idx = int(search(loop_regex, output))
+            byte_offset = loop_idx * 9
+            del loop_idx
         else:
             byte_offset = 0
 
@@ -195,58 +191,50 @@ class Converter:
 
         with open(self.brrname, 'r+b') as brrfile:
             data = byte_offset.to_bytes(2, 'little') + brrfile.read()
-            brrfile.truncate(0)
-            brrfile.seek(0)
+
+        with open(self.brrname, 'wb') as brrfile:
             brrfile.write(data)
 
         return ratio
 
     def decode(self, ratio):
-        args = ['-s' + str(round_frac(self.get_rate() * ratio)), self.brrname, self.name + ' decoded.wav']
+        args = ['-s' + str(round_frac(self.get_rate() * ratio)), self.brrname,
+                self.name + ' decoded.wav']
         decode_output = brr_decoder[args]()
         if VERBOSE:
             print(decode_output.replace('\r', ''))
 
 
-
-
-
-
-
-
-
-
-
-
-
-def convertCfg(cfgname: str, name2sample: 'Dict[str, Sample]'):
+def convert_cfg(cfgname: str, name2sample: 'Dict[str, Sf2Sample]'):
     # Skip tilde-folders.
     if cfgname[0] == '~': return
 
     name = cfgname[:cfgname.rfind('.')]
-    sampName = name[name.rfind('/') + 1:]
+    samp_name = name[name.rfind('/') + 1:]
 
     if VERBOSE: print('~~~~~', name, '~~~~')
 
     try:
         with open(cfgname) as cfgfile:
+            # TODO ruamel.yaml... maybe not, python arithmetic expressions are neat
             config = AttrDict(eval(cfgfile.read()))
 
-        loop = config.get('loop', 'whatever')
+        loop = config.get('loop', 'whatever')   # TODO
         truncate = config.get('truncate', None)
         ratio = config.get('ratio', 1)
         volume = config.get('volume', 1)
         transpose = config.get('transpose', 0)
         transpose += config.get('orig-smw', 0)
-        at = config.get('at', None)
+        at = config.get('at', None)  # MIDI pitch of original note
 
-        sample = config.get('sample', None)
-        if sample or sampName not in name2sample:
+        # TODO dirty code, refactor into WavSample
+        sample = config.get('sample', None)     # type: ISample
+        if sample or samp_name not in name2sample:
             sample = AttrDict(sample if sample else {})
             set_maybe(sample, 'pitch_correction', 0)
-            set_maybe(sample, 'name', sampName)
+            set_maybe(sample, 'name', samp_name)
         else:
-            sample = name2sample[sampName]
+            sample = name2sample[samp_name]
         if transpose:
             sample.original_pitch -= transpose
 
@@ -272,40 +260,45 @@ def convertCfg(cfgname: str, name2sample: 'Dict[str, Sample]'):
         # if isinstance(ratio, float):
         #     raise Exception('inaccurate ratio!')
         ratio = Fraction(ratio)
-        ratio = conv.convert(loop=loop, ratio=ratio, truncate=truncate, decode=True)
+        ratio = conv.convert(ratio=ratio, loop=loop, truncate=truncate, decode=True)
         shutil.copy(conv.brrname, WAV2AMK + 'samples/' + PROJECT)
 
-        wav2brr.brr_tune(sample, ratio)
+        wav2brr.brr_tune(sample, ratio)     # calls print
 
         if VERBOSE: print()
 
-    except Exception as e:
+    except Exception:
         print('At file', name, file=sys.stderr)
-        raise e
+        raise
 
 
-def main(name='SSEQ_0041.sf2'):
+def main(name):
     sf2_file = open(name, 'rb')
     sf2 = Sf2File(sf2_file)
-    samples = sorted(sf2.samples[:-1], key=lambda s: s.name)    # type: List[Sample]
-    name2sample = {sample.name : sample for sample in samples}  # type: Dict[str, Sample]
+    samples = sorted(sf2.samples[:-1], key=lambda s: s.name)  # type: List[Sample]
+    name2sample = {sample.name: sample for sample in samples}  # type: Dict[str, Sample]
 
-    with pushd(WAV+WAV2AMK+'samples/'+PROJECT):
+    # TODO arbitrary directory tree
+    with pushd(WAV + WAV2AMK + 'samples/' + PROJECT):
         for wat in glob.glob('*'):
             os.remove(wat)
 
-    with pushd('wav'):
+    with pushd(WAV):
         folders = [f[:-1] for f in glob.glob('*/') if '~' not in f]
         configs = [f[:f.find('\\')] for f in glob.glob('*/*.cfg*') if '~' not in f]
+
+        # Raise exception if empty folders discovered (FIXME what if 2 configs in 1 folder?)
+        # wait "configs" is a list of folders containing cfg! this code is hot garbage
         if len(folders) != len(configs):
             raise Exception(set(folders) - set(configs))
 
-        for cfgname in sorted(glob.glob(r'*/*.cfg')):   # type: str
+        for cfgname in sorted(glob.glob(r'*/*.cfg')):  # type: str
             cfgname = cfgname.replace('\\', '/')
-            convertCfg(cfgname, name2sample)
+            convert_cfg(cfgname, name2sample)
 
+    # FIXME
     os.system('build.cmd')
 
-if __name__ == '__main__':
-    main()
 
+if __name__ == '__main__':
+    main(sys.argv[1])
