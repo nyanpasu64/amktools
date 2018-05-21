@@ -225,7 +225,8 @@ def convert_cfg(cfg_path: str, name2sample: 'Dict[str, Sf2Sample]'):
         at = config.get('at', None)  # MIDI pitch of original note
 
         # TODO dirty code, refactor into WavSample
-        sample = config.get('sample', None)     # type: ISample
+        # FIXME sample = config.get('sample', None)     # type: ISample
+        sample = None
         if bool(sample) or cfg_name not in name2sample:     # wtf
             sample = AttrDict(sample or {})                 # wtf
             set_maybe(sample, 'pitch_correction', 0)        # burn set_maybe with fire
@@ -297,7 +298,7 @@ def main(sf2_name):
             convert_cfg(cfg_path, name2sample)
 
     # FIXME
-    os.system('build.cmd')
+    # os.system('build.cmd')
 
 
 if __name__ == '__main__':
