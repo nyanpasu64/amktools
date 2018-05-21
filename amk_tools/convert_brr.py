@@ -16,7 +16,7 @@ from sf2utils.sf2parse import Sf2File
 
 from amk_tools import wav2brr
 from amk_tools.util import AttrDict
-from amk_tools.wav2brr import ISample
+from amk_tools.wav2brr import ISample, note2ratio
 
 
 logging.root.setLevel(logging.ERROR)  # to silence overly pedantic SF2File
@@ -88,10 +88,11 @@ def search(regex, s):
 
 class Converter:
 
-    def __init__(self, name, wav='.', brr='.'):
+    def __init__(self, name, wav='.', brr='.', transpose=0):
         self.name = name
         self.wavname = wav + '/' + name + '.wav'
         self.brrname = brr + '/' + name + '.brr'
+        self.transpose = transpose
 
         w = wave.open(self.wavname)
         self.rate = w.getframerate()
@@ -193,7 +194,8 @@ class Converter:
         return wav2brr_ratio
 
     def decode(self, ratio):
-        args = ['-s' + str(round_frac(self.get_rate() * ratio)), self.brrname,
+        rate = self.get_rate() * ratio * note2ratio(self.transpose)
+        args = ['-s' + str(round_frac(rate)), self.brrname,
                 self.name + ' decoded.wav']
         decode_output = brr_decoder[args]()
         if VERBOSE:
@@ -246,7 +248,7 @@ def convert_cfg(cfg_path: str, name2sample: 'Dict[str, Sf2Sample]'):
             except AttributeError:
                 pass
 
-        conv = Converter(name)
+        conv = Converter(name, transpose=transpose)
         sample.sample_rate = conv.rate
 
         if volume != 1:

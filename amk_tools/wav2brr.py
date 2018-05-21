@@ -9,14 +9,19 @@ from amk_tools.util import WavSample
 ISample = Union[WavSample, Sf2Sample]
 
 
-def freqf(note, cents=0):
-    freq = 440 * 2 ** ((note - 69 + cents / 100) / 12)
+def note2ratio(note, cents=0):
+    ratio = 2 ** ((note + cents / 100) / 12)
+    return ratio
+
+
+def note2pitch(note, cents=0):
+    freq = 440 * note2ratio(note - 69, cents)
     return freq
 
 
 def brr_tune(sample: ISample, ratio):
     ratio = Fraction(ratio)
-    freq = freqf(sample.original_pitch, sample.pitch_correction)
+    freq = note2pitch(sample.original_pitch, sample.pitch_correction)
     # since original_pitch is correct in DS Rainbow Road percussion
 
     N = (sample.sample_rate * ratio) / freq / 16
