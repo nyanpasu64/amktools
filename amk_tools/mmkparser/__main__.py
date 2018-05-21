@@ -5,9 +5,9 @@
 # Released under the WTFPL
 
 import argparse
-import subprocess
 
 from fractions import Fraction
+
 
 # Pretend macros don't exist, because they're too much trouble.
 # Commands are parsed at macro-define, not macro-eval.
@@ -16,6 +16,7 @@ from fractions import Fraction
 # make the generated source less human-readable.
 
 # Now I am keeping the segmentation concept, but discarding the volume preservation. Too difficult.
+from typing import Dict, List
 
 
 def parse_int(instr):
@@ -36,93 +37,117 @@ def parse_frac(infrac):
 def frac2hex(in_frac):
     return '$' + hex(int(in_frac))[2:].zfill(2)
 
+
 QUARTER_TO_TICKS = 0x30
 
 
 def vol_midi2smw(midi_vol):
-    # Divide by 127, square, multiply by 255.
-    # MIDI vol is 4rt(real)
-    # SMW vol is 2rt(real) = (4rt(real))^2
-
-    # Uh yeah, scratch the squaring!
-
     midi_vol = parse_frac(midi_vol)
     fractional = midi_vol / 127
     smw_vol = fractional * 255
     return round(smw_vol)
 
 
-class ExceptionException(Exception):
-    pass
-
-
 DELIMITERS = ' \t\n\r\x0b\f:,'
+
 
 # Focus on parsing text.
 class MMKParser:
-    def curr_char(self):
+    SHEBANG = '%mmk0.1'
+    SEGMENT = str
+
+    def __init__(self, instring):
+        self.in_str = instring
+        self.orig_state = {
+            'isvol': False, 'ispan': False, 'panscale': Fraction('5/64'), 'vmod': Fraction(1)}
+        self.state = self.orig_state.copy()
+        self.defines = {}       # type: Dict[str, str]
+
+        self.currseg = -1
+        self.seg_text = {}  # type: Dict[int, List[self.SEGMENT]]
+        self.pos = 0
+        self.out = []
+
+        self.is_quote = False
+
+    def len(self):
+        return len(self.in_str)
+
+    # so I basically reimplemented the iterator protocol ad-hoc... except I can't use takewhile.
+    # Iterators don't support peek(). https://pypi.org/project/more-itertools/ supports peek() like
+    # my API.
+    def peek(self):
         return self.in_str[self.pos]
 
-    # Begin tokenization/manipulation functions
-    def skip_chars(self, num, keep=True):
-        # Skips the specified number of characters.
-        for x in range(num):
-            if self.pos == len(self.in_str):
-                break
-            if keep:
-                self.put(self.curr_char())
-            self.pos += 1
+    def is_eof(self):
+        assert self.pos <= self.len()
+        return self.pos >= self.len()
+
+    def get_char(self) -> str:
+        out = self.in_str[self.pos]
+        self.pos += 1
+        return out
+
+    # **** Parsing ****
+    def skip_chars(self, num, keep: bool = True) -> None:
+        """ Skips the specified number of characters.
+        :param num: Number of characters to skip.
+        :param keep: Whether to write characters.
+        :return: None
+        """
+
+        pos = self.pos
+        skipped = self.in_str[pos: pos + num]
+        self.pos = min(pos + num, self.len())
+        if keep:
+            self.put(skipped)
+
+    # ****
 
     def get_word(self):
-        # This removes all leading spaces, but only trailing spaces up to the first \n.
-        # That helps preserve formatting.
+        """ Removes all leading spaces, but only trailing spaces up to the first \n.
+        That helps preserve formatting.
+        :return: (word, trailing whitespace)
+        """
+
         self.skip_spaces(False, exclude='')
 
-        buffer = ''
-        while not self.curr_char() in DELIMITERS:
-            buffer += self.curr_char()
-            self.pos += 1
+        word = ''
+        while not self.peek() in DELIMITERS:
+            word += self.get_char()
         trailing = self.skip_spaces(False, exclude='\n')
 
-        if buffer[0] == '%':
-            buffer = self.defines.get(buffer[1:], buffer)
-        return buffer, trailing
+        if word.startswith('%'):
+            word = self.defines.get(word[1:], word)
+        return word, trailing
 
     def get_line(self):
         self.skip_spaces(False, exclude='')
 
-        buffer = ''
-        while not self.curr_char() == '\n':
-            buffer += self.curr_char()
-            self.pos += 1
+        line = ''
+        while not self.peek() == '\n':
+            line += self.get_char()
         trailing = ''
-        return buffer, trailing
-
+        return line, trailing
 
     def get_int(self):
         # Gets an integer. No whitespace needed.
         buffer = ''
-        while self.curr_char().isdigit():
-            buffer += self.curr_char()
-            self.pos += 1
+        while self.peek().isdigit():
+            buffer += self.get_char()
         return parse_int(buffer)
 
     def skip_spaces(self, keep, exclude=''):
-        instring = self.in_str
         # Optional exclude newlines, for example. Useful for preserving formatting.
-        if self.pos == len(self.in_str):
-            return ''
+        skipped = ''
 
-        after = ''
-
-        while self.curr_char() in DELIMITERS and self.curr_char() not in exclude:
-            after += self.curr_char()
+        delimiters =  set(DELIMITERS) - set(exclude)
+        while not self.is_eof() and self.peek() in delimiters:
             if keep:
-                self.put(self.curr_char())
-            self.pos += 1
-            if self.pos == len(self.in_str):
-                break
-        return after
+                self.put(self.peek())
+            skipped += self.get_char()
+
+        return skipped
 
     def put(self, pstr):
         if self.currseg == -1:
@@ -177,14 +202,14 @@ class MMKParser:
         self.put('y' + self.state['pan'])
 
     def skip_until(self, end):
-        instring = self.in_str
+        in_str = self.in_str
         self.skip_chars(1, keep=True)
-        end_pos = instring.find(end, self.pos)
+        end_pos = in_str.find(end, self.pos)
         if end_pos == -1:
-            end_pos = self.inlen
+            end_pos = self.len()
 
         # The delimiter is skipped as well.
-        # If end_pos == self.inlen, skip_chars handles the OOB case by not reading the extra char.
+        # If end_pos == self.len(), skip_chars handles the OOB case by not reading the extra char.
         self.skip_chars(end_pos - self.pos + 1, keep=True)
 
         return self.in_str[end_pos]
@@ -196,6 +221,7 @@ class MMKParser:
         self.skip_until('}')
 
     def parse_quotes(self):
+        # TODO what is this?
         if self.is_quote is True:
             self.skip_chars(1, keep=True)
             self.is_quote = False
@@ -238,44 +264,27 @@ class MMKParser:
     # PANSCALE: Fraction (5/64)
     # ISVOL, ISPAN: bool
 
-    def __init__(self, instring):
-        self.in_str = instring
-        self.orig_state = {'isvol': False, 'ispan': False, 'panscale': parse_frac('5/64'), 'vmod': Fraction(1)}
-        self.state = self.orig_state.copy()
-        self.seg_states = {}
-        self.defines = {}
-
-        self.currseg = -1
-        self.seg_text = {}
-        self.inlen = len(self.in_str)
-        self.pos = 0
-        self.out = []
-
-        self.is_quote = False
-
     def parse(self):
         # For exception debug
         command = None
         begin_pos = 0
         try:
-            # Remove the header.
-            if self.in_str.startswith('%mmk0.1'):
-                self.in_str = self.in_str[len('%mmk0.1'):].lstrip()
-                self.inlen = len(self.in_str)
+            # Remove the header. TODO increment pos instead.
+            if self.in_str.startswith(self.SHEBANG):
+                self.in_str = self.in_str[len(self.SHEBANG):].lstrip()
             else:
-                print('Missing header "%mmk0.1"')
-                print('Ignoring error...')
-                # print('Press Enter to exit.')
-                # input()
-                # return None
+                # print('Missing header "%mmk0.1"')
+                # print('Ignoring error...')
+                pass
 
-            while self.pos < self.inlen:
-                self.skip_spaces(True)    # Yeah, simpler this way. But could hide bugs/inconsistencies.
-                if self.pos == self.inlen:
+            while self.pos < self.len():
+                self.skip_spaces(
+                    True)  # Yeah, simpler this way. But could hide bugs/inconsistencies.
+                if self.pos == self.len():
                     break
                     # Only whitespace left, means already printed, nothing more to do
                 begin_pos = self.pos
-                char = self.curr_char()
+                char = self.peek()
 
                 # Parse the no-argument default commands.
                 if char == 'v':
@@ -303,11 +312,11 @@ class MMKParser:
                     self.skip_chars(1, keep=False)
 
                     # NO ARGUMENTS
-                    commandCase, trailing = self.get_word()
-                    command = commandCase.lower()
+                    command_case, trailing = self.get_word()
+                    command = command_case.lower()
 
-                    if commandCase in self.defines:
-                        self.put(self.defines[commandCase] + trailing)
+                    if command_case in self.defines:
+                        self.put(self.defines[command_case] + trailing)
                         continue
 
                     if command == 'define':
@@ -315,7 +324,6 @@ class MMKParser:
                         value = self.get_line()[0]
                         self.defines[key] = value
                         continue
-
 
                     if command == 'reset':
                         self.state = self.orig_state.copy()
@@ -342,6 +350,7 @@ class MMKParser:
                         continue
 
                     if command == 'mmk0.1':
+                        raise Exception("this shouldn't happen")
                         continue
 
                     # ONE ARGUMENT
@@ -390,10 +399,10 @@ class MMKParser:
                     arg4, trailing = self.get_word()
                     if command == 'adsr':
                         print('ADSR not implemented...')
-                        continue    # TODO: ADSR
+                        continue  # TODO: ADSR
 
                     # INVALID COMMAND
-                    raise ExceptionException('Invalid command '+command)
+                    raise ValueError('Invalid command ' + command)
                 else:
                     self.skip_chars(1, keep=True)
                     self.skip_spaces(True)
@@ -402,7 +411,7 @@ class MMKParser:
             return ''.join(self.out).strip() + '\n'
         except Exception as ex:
             print('Last command "%' + command + '" Context:')
-            print('...' + self.in_str[begin_pos-100 : begin_pos] + '...\n')
+            print('...' + self.in_str[begin_pos - 100: begin_pos] + '...\n')
             raise ex
 
 
@@ -411,13 +420,14 @@ if __name__ == '__main__':
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description='Parse one or more MMK files to a single AddmusicK source file.',
         epilog=
-'''Examples:
-`mmk_parser infile.txt`                 outputs to infile.out.txt
-`mmk_parser infile.txt infile2.txt`     outputs to infile.out.txt
-`mmk_parser infile.txt -o outfile.txt`  outputs to outfile.txt
-''')
+        '''Examples:
+        `mmk_parser infile.txt`                 outputs to infile.out.txt
+        `mmk_parser infile.txt infile2.txt`     outputs to infile.out.txt
+        `mmk_parser infile.txt -o outfile.txt`  outputs to outfile.txt
+        ''')
     parser.add_argument('files', help='Input files, will be concatenated', nargs='+')
-    parser.add_argument('-o', '--outpath', help='Output path (if omitted)', default=argparse.SUPPRESS)
+    parser.add_argument('-o', '--outpath', help='Output path (if omitted)',
+                        default=argparse.SUPPRESS)
     args = parser.parse_args()
 
     inpaths = args.files
