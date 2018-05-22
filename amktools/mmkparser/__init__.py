@@ -5,9 +5,9 @@
 # Released under the WTFPL
 
 import argparse
-
+import os
+from ruamel.yaml import YAML
 from fractions import Fraction
-
 
 # Pretend macros don't exist, because they're too much trouble.
 # Commands are parsed at macro-define, not macro-eval.
@@ -16,7 +16,11 @@ from fractions import Fraction
 # make the generated source less human-readable.
 
 # Now I am keeping the segmentation concept, but discarding the volume preservation. Too difficult.
-from typing import Dict, List
+from pathlib import Path
+from typing import Dict, List, Union
+
+
+yaml = YAML(typ='safe')
 
 
 def parse_int_round(instr):
@@ -63,12 +67,14 @@ class MMKParser:
     SHEBANG = '%mmk0.1'
     SEGMENT = str
 
-    def __init__(self, instring):
-        self.in_str = instring
+    def __init__(self, in_str, tuning: Union[dict, None]):
+        self.in_str = in_str
+        self.tuning = tuning
+
         self.orig_state = {
             'isvol': False, 'ispan': False, 'panscale': Fraction('5/64'), 'vmod': Fraction(1)}
         self.state = self.orig_state.copy()
-        self.defines = {}       # type: Dict[str, str]
+        self.defines = {}  # type: Dict[str, str]
 
         self.currseg = -1
         self.seg_text = {}  # type: Dict[int, List[self.SEGMENT]]
@@ -76,6 +82,8 @@ class MMKParser:
         self.out = []
 
         self.is_quote = False
+
+    # TODO MshFile object with read methods, line counts.
 
     def size(self):
         return len(self.in_str)
@@ -132,7 +140,7 @@ class MMKParser:
         self.skip_spaces(False, exclude='')
 
         line = ''
-        while not self.peek() == '\n':
+        while not self.peek() == '\n':  # fixme shlemiel the painter
             line += self.get_char()
         trailing = ''
         return line, trailing
@@ -148,7 +156,7 @@ class MMKParser:
         # Optional exclude newlines, for example. Useful for preserving formatting.
         skipped = ''
 
-        delimiters =  set(DELIMITERS) - set(exclude)
+        delimiters = set(DELIMITERS) - set(exclude)
         while not self.is_eof() and self.peek() in delimiters:
             if keep:
                 self.put(self.peek())
@@ -171,10 +179,6 @@ class MMKParser:
 
         if self.state['isvol']:
             vol *= 2
-        #
-        #     return str(vol_midi2smw(in_vol))
-        # else:
-        #     return str(in_vol)
         return str(round(vol))
 
     # Begin parsing functions!
@@ -239,6 +243,16 @@ class MMKParser:
             if final_char != '"':
                 self.is_quote = True
 
+    # Multi-word parsing
+
+    def parse_tune(self, brr, adsr, whitespace):
+        if self.tuning is None:
+            print('Cannot use %tune without a tuning file')
+            raise ValueError
+
+        tuning = self.tuning[brr]
+        self.put('{} {} {}{}'.format(brr, tuning, adsr, whitespace))
+
     def parse_pbend(self, delay, time, note, whitespace):
         # Takes a fraction of a quarter note as input.
         # Converts to ticks.
@@ -267,7 +281,6 @@ class MMKParser:
 
         self.put('$E5 {} {} {}{}'.format(delay_hex, freq_hex, amplitude, whitespace))
 
-
     _GAINS = [
         # curve, begin, max_rate
         ['direct', 0x00],
@@ -279,7 +292,7 @@ class MMKParser:
     ]
 
     for i in range(len(_GAINS) - 1):
-        _GAINS[i].append(_GAINS[i+1][1] - _GAINS[i][1])
+        _GAINS[i].append(_GAINS[i + 1][1] - _GAINS[i][1])
     _GAINS = _GAINS[:-1]
 
     def parse_gain(self, curve, rate, whitespace):
@@ -290,7 +303,8 @@ class MMKParser:
         for curve_, begin, max_rate in self._GAINS:
             if curve_ == curve:
                 if rate not in range(max_rate):
-                    print('Invalid rate %s for curve %s (rate < %s)' % (raw_rate, curve, hex(max_rate)))
+                    print('Invalid rate %s for curve %s (rate < %s)' %
+                          (raw_rate, curve, hex(max_rate)))
                     raise ValueError
 
                 self.put('$ED $80 %s%s' % (frac2hex(begin + rate), whitespace))
@@ -301,7 +315,7 @@ class MMKParser:
             print('%s (rate < %s)' % (curve, hex(max_rate)))
         raise ValueError
 
-
+    # self.state:
     # PAN, VOL, INSTR: str (Remove segments?)
     # PANSCALE: Fraction (5/64)
     # ISVOL, ISPAN: bool
@@ -361,6 +375,9 @@ class MMKParser:
                         self.put(self.defines[command_case] + trailing)
                         continue
 
+                    if command == 'mmk0.1':
+                        raise Exception("this shouldn't happen")
+
                     if command == 'define':
                         key = self.get_word()[0]
                         value = self.get_line()[0]
@@ -391,9 +408,10 @@ class MMKParser:
                         self.state['ispan'] = False
                         continue
 
-                    if command == 'mmk0.1':
-                        raise Exception("this shouldn't happen")
-                        # continue
+                    if command == 'tune':
+                        brr = self.get_quotes()
+                        adsr = self.get_line()
+                        self.parse_tune(brr, adsr, '')
 
                     # ONE ARGUMENT
                     arg, trailing = self.get_word()
@@ -401,20 +419,6 @@ class MMKParser:
                     if command == 'vmod':
                         self.state['vmod'] = parse_frac(arg)
                         continue
-
-                    # if command == 'segment':
-                    #     self.currseg = arg
-                    #     self.seg_states[self.currseg] = self.state.copy()
-                    #     continue
-                    #
-                    # if command == 'miniprint':
-                    #     this_seg = ''.join(self.seg_text[arg])
-                    #     self.put(this_seg)
-                    #     continue
-                    #
-                    # if command == 'setpanscale':
-                    #     self.state['panscale'] = parse_frac(arg)
-                    #     continue
 
                     # 2 ARGUMENTS
                     arg2, trailing = self.get_word()
@@ -462,44 +466,67 @@ class MMKParser:
             raise
 
 
+def remove_ext(path):
+    head = os.path.splitext(path)[0]
+    return head
+
+
+TUNING = 'tuning.yaml'
+SUFFIX = '.out.txt'
+
 def main():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        argument_default=argparse.SUPPRESS,
         description='Parse one or more MMK files to a single AddmusicK source file.',
-        epilog=
-        '''Examples:
-        `mmk_parser infile.txt`                 outputs to infile.out.txt
-        `mmk_parser infile.txt infile2.txt`     outputs to infile.out.txt
-        `mmk_parser infile.txt -o outfile.txt`  outputs to outfile.txt
-        ''')
+        epilog='''Examples:
+`mmk_parser infile.txt`                 outputs to infile.out.txt
+`mmk_parser infile.txt infile2.txt`     outputs to infile.out.txt
+`mmk_parser infile.txt -o outfile.txt`  outputs to outfile.txt''')
+
     parser.add_argument('files', help='Input files, will be concatenated', nargs='+')
-    parser.add_argument('-o', '--outpath', help='Output path (if omitted)',
-                        default=argparse.SUPPRESS)
+    parser.add_argument('-t', '--tuning',
+                        help='Tuning file produced by convert_brr (defaults to {})'.format(TUNING))
+    parser.add_argument('-o', '--outpath', help='Output path (if omitted)')
     args = parser.parse_args()
 
+    # FILES
     inpaths = args.files
-    indata = ''
+    first_path = inpaths[0]
+
+    datas = []
     for inpath in inpaths:
         with open(inpath) as ifile:
-            indata += ifile.read()
-    if indata[-1] != '\n':
-        indata += '\n'
+            datas.append(ifile.read())
+    datas.append('\n')
+    in_str = '\n'.join(datas)
 
-    parser = MMKParser(indata)
+    # TUNING
+    if 'tuning' in args:
+        tuning_path = args.tuning
+    else:
+        tuning_path = str(Path(first_path, '..', TUNING).resolve())
+    try:
+        with open(tuning_path) as f:
+            tuning = yaml.load(f)
+            if type(tuning) != dict:
+                raise ValueError('invalid tuning file {}, must be YAML key-value map'.format(tuning_path))
+    except FileNotFoundError:
+        tuning = None
+
+    # OUT PATH
+    if 'outpath' in args:
+        outpath = args.outpath
+    else:
+        outpath = remove_ext(first_path) + SUFFIX
+
+    # parse
+
+    parser = MMKParser(in_str, tuning)
     outstr = parser.parse()
     if outstr is None:
         exit(2)
 
-    firstpath = inpaths[0]
-    if 'o' in args:
-        outpath = args.o
-    elif 'outpath' in args:
-        outpath = args.outpath
-    else:
-        if firstpath.rfind('.') == -1 or firstpath.rfind('.') < firstpath.rfind('/'):
-            outpath = firstpath + '.out.txt'
-        else:
-            outpath = firstpath[:firstpath.rfind('.')] + '.out.txt'
     with open(outpath, 'w') as ofile:
         ofile.write(outstr)
 
