@@ -1,7 +1,7 @@
 from distutils.core import setup
 
 setup(
-    name='amk_tools',
+    name='amktools',
     version='',
     packages=[''],
     url='',

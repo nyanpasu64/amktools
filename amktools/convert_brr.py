@@ -14,9 +14,9 @@ from typing import List, Dict
 from sf2utils.sample import Sf2Sample
 from sf2utils.sf2parse import Sf2File
 
-from amk_tools import wav2brr
-from amk_tools.util import AttrDict
-from amk_tools.wav2brr import ISample, note2ratio
+from amktools import wav2brr
+from amktools.util import AttrDict
+from amktools.wav2brr import ISample, note2ratio
 
 
 logging.root.setLevel(logging.ERROR)  # to silence overly pedantic SF2File

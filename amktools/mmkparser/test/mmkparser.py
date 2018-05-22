@@ -1,4 +1,4 @@
-from amk_tools import mmkparser
+from amktools import mmkparser
 from ruamel.yaml import YAML
 
 

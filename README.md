@@ -24,8 +24,8 @@
 - pip install -e .
 - Create convert_brr.cmd next to wav folder
     - `call .../activate.bat`
-    - Either `python -m amk_tools` (TODO rename)
-    - Or `python -m amk_tools file.sf2` to get tuning/loop data from soundfont
+    - Either `python -m amktools` (TODO rename)
+    - Or `python -m amktools file.sf2` to get tuning/loop data from soundfont
 
 ## .cfg file format
 

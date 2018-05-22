@@ -1,6 +1,6 @@
 import sys
 
-from amk_tools import convert_brr
+from amktools import convert_brr
 
 
 if __name__ == '__main__':
