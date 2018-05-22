@@ -109,7 +109,7 @@ class Converter:
     #     return self.get_len(self.wavname) - loop
 
     def attenuate(self, volume: Fraction):
-        # TODO: eliminate dependency on sox
+        # TODO: eliminate dependency on sox, using -a flag
         quiet_name = self.wavname + ' attenuate.wav'
 
         args = ['-v', str(round_frac(volume)), self.wavname, quiet_name]
@@ -144,8 +144,8 @@ class Converter:
         :param decode: Whether to decode sample back to wav.
         :return: Effective resampling ratio
         """
-        # TODO: why did I mention the -a -g flags?
-        args = [self.wavname, self.brrname]
+        # TODO: -a attenuation, -g gaussian?
+        args = ['-g', self.wavname, self.brrname]
 
         if loop is not None:
             args[0:0] = ['-l' + str(loop)]

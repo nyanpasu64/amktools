@@ -19,8 +19,15 @@ from fractions import Fraction
 from typing import Dict, List
 
 
-def parse_int(instr):
+def parse_int_round(instr):
     return int(parse_frac(instr))
+
+
+def parse_int_hex(instr: str):
+    if instr.startswith('$'):
+        return int(instr[1:], 16)
+    else:
+        return int(instr, 0)
 
 
 def parse_frac(infrac):
@@ -48,7 +55,7 @@ def vol_midi2smw(midi_vol):
     return round(smw_vol)
 
 
-DELIMITERS = ' \t\n\r\x0b\f:,'
+DELIMITERS = ' \t\n\r\x0b\f:,"'
 
 
 # Focus on parsing text.
@@ -70,7 +77,7 @@ class MMKParser:
 
         self.is_quote = False
 
-    def len(self):
+    def size(self):
         return len(self.in_str)
 
     # so I basically reimplemented the iterator protocol ad-hoc... except I can't use takewhile.
@@ -80,8 +87,8 @@ class MMKParser:
         return self.in_str[self.pos]
 
     def is_eof(self):
-        assert self.pos <= self.len()
-        return self.pos >= self.len()
+        assert self.pos <= self.size()
+        return self.pos >= self.size()
 
     def get_char(self) -> str:
         out = self.in_str[self.pos]
@@ -98,7 +105,7 @@ class MMKParser:
 
         pos = self.pos
         skipped = self.in_str[pos: pos + num]
-        self.pos = min(pos + num, self.len())
+        self.pos = min(pos + num, self.size())
         if keep:
             self.put(skipped)
 
@@ -135,7 +142,7 @@ class MMKParser:
         buffer = ''
         while self.peek().isdigit():
             buffer += self.get_char()
-        return parse_int(buffer)
+        return parse_int_round(buffer)
 
     def skip_spaces(self, keep, exclude=''):
         # Optional exclude newlines, for example. Useful for preserving formatting.
@@ -206,7 +213,7 @@ class MMKParser:
         self.skip_chars(1, keep=True)
         end_pos = in_str.find(end, self.pos)
         if end_pos == -1:
-            end_pos = self.len()
+            end_pos = self.size()
 
         # The delimiter is skipped as well.
         # If end_pos == self.len(), skip_chars handles the OOB case by not reading the extra char.
@@ -232,33 +239,68 @@ class MMKParser:
             if final_char != '"':
                 self.is_quote = True
 
-    def parse_pbend(self, delay, time, note, after):
+    def parse_pbend(self, delay, time, note, whitespace):
         # Takes a fraction of a quarter note as input.
         # Converts to ticks.
         delay_hex = frac2hex(parse_frac(delay) * QUARTER_TO_TICKS)
         time_hex = frac2hex(parse_frac(time) * QUARTER_TO_TICKS)
 
-        self.put('$DD {} {} {}{}'.format(delay_hex, time_hex, note, after))
+        self.put('$DD {} {} {}{}'.format(delay_hex, time_hex, note, whitespace))
 
-    def parse_vbend(self, time, vol, after):
+    def parse_vbend(self, time, vol, whitespace):
         # Takes a fraction of a quarter note as input.
         # Converts to ticks.
         time_hex = frac2hex(parse_frac(time) * QUARTER_TO_TICKS)
         vol_hex = self.parse_vol_hex(vol)
 
-        self.put('$E8 {} {}{}'.format(time_hex, vol_hex, after))
+        self.put('$E8 {} {}{}'.format(time_hex, vol_hex, whitespace))
 
-    def parse_vib(self, delay, frequency, amplitude, after):
+    def parse_vib(self, delay, frequency, amplitude, whitespace):
         delay_hex = frac2hex(parse_frac(delay) * QUARTER_TO_TICKS)
         freq_hex = frac2hex(parse_frac(frequency))
 
-        self.put('$DE {} {} {}{}'.format(delay_hex, freq_hex, amplitude, after))
+        self.put('$DE {} {} {}{}'.format(delay_hex, freq_hex, amplitude, whitespace))
 
-    def parse_trem(self, delay, frequency, amplitude, after):
+    def parse_trem(self, delay, frequency, amplitude, whitespace):
         delay_hex = frac2hex(parse_frac(delay) * QUARTER_TO_TICKS)
         freq_hex = frac2hex(parse_frac(frequency))
 
-        self.put('$E5 {} {} {}{}'.format(delay_hex, freq_hex, amplitude, after))
+        self.put('$E5 {} {} {}{}'.format(delay_hex, freq_hex, amplitude, whitespace))
+
+
+    _GAINS = [
+        # curve, begin, max_rate
+        ['direct', 0x00],
+        ['down', 0x80],
+        ['exp', 0xa0],
+        ['up', 0xc0],
+        ['bent', 0xe0],
+        [None, 0x100],
+    ]
+
+    for i in range(len(_GAINS) - 1):
+        _GAINS[i].append(_GAINS[i+1][1] - _GAINS[i][1])
+    _GAINS = _GAINS[:-1]
+
+    def parse_gain(self, curve, rate, whitespace):
+        # Look for a matching GAIN value, ensure the input rate lies in-bounds,
+        # then write a hex command.
+        raw_rate = rate
+        rate = parse_int_hex(rate)
+        for curve_, begin, max_rate in self._GAINS:
+            if curve_ == curve:
+                if rate not in range(max_rate):
+                    print('Invalid rate %s for curve %s (rate < %s)' % (raw_rate, curve, hex(max_rate)))
+                    raise ValueError
+
+                self.put('$ED $80 %s%s' % (frac2hex(begin + rate), whitespace))
+                return
+
+        print('Invalid gain %s, options are:' % repr(curve))
+        for curve, _, max_rate in self._GAINS:
+            print('%s (rate < %s)' % (curve, hex(max_rate)))
+        raise ValueError
+
 
     # PAN, VOL, INSTR: str (Remove segments?)
     # PANSCALE: Fraction (5/64)
@@ -277,10 +319,10 @@ class MMKParser:
                 # print('Ignoring error...')
                 pass
 
-            while self.pos < self.len():
+            while self.pos < self.size():
                 self.skip_spaces(
                     True)  # Yeah, simpler this way. But could hide bugs/inconsistencies.
-                if self.pos == self.len():
+                if self.pos == self.size():
                     break
                     # Only whitespace left, means already printed, nothing more to do
                 begin_pos = self.pos
@@ -351,7 +393,7 @@ class MMKParser:
 
                     if command == 'mmk0.1':
                         raise Exception("this shouldn't happen")
-                        continue
+                        # continue
 
                     # ONE ARGUMENT
                     arg, trailing = self.get_word()
@@ -378,6 +420,10 @@ class MMKParser:
                     arg2, trailing = self.get_word()
                     if command == 'vbend':
                         self.parse_vbend(arg, arg2, trailing)
+                        continue
+
+                    if command == 'gain':
+                        self.parse_gain(arg, arg2, trailing)
                         continue
 
                     # 3 ARGUMENTS
@@ -409,10 +455,11 @@ class MMKParser:
                     # done processing the command
 
             return ''.join(self.out).strip() + '\n'
-        except Exception as ex:
+        except Exception:
+            print()
             print('Last command "%' + command + '" Context:')
             print('...' + self.in_str[begin_pos - 100: begin_pos] + '...\n')
-            raise ex
+            raise
 
 
 if __name__ == '__main__':
