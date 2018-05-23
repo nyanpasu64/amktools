@@ -7,6 +7,7 @@
 import argparse
 import os
 import re
+from contextlib import contextmanager
 from fractions import Fraction
 from pathlib import Path
 from typing import Dict, List, Union
@@ -60,6 +61,10 @@ WHITESPACE = ' \t\n\r\x0b\f'
 TERMINATORS = WHITESPACE + ':,"'
 
 
+class MMKError(ValueError):
+    pass
+
+
 # Focus on parsing text.
 class MMKParser:
     SHEBANG = '%mmk0.1'
@@ -105,6 +110,23 @@ class MMKParser:
         self.pos += 1
         return out
 
+    @contextmanager
+    def end_at(self, sub):
+        end = self.in_str.find(sub, self.pos)
+
+        string = self.in_str
+        begin = self.pos
+
+        self.in_str = string[begin:end]
+        self.pos = 0
+        yield
+
+        if begin + self.pos != end:
+            raise Exception('Bounded parsing error, parsing ended at {} but region ends at {}'
+                            .format(begin + self.pos, end))
+        self.in_str = string
+        self.pos = end
+
     # **** Parsing ****
     def get_until(self, regex, inclusive=False, loose=False):
         """
@@ -124,39 +146,42 @@ class MMKParser:
             end = self.size()
             out_idx = end
         else:
-            raise ValueError('Unterminated region, missing {}'.format(regex))
+            raise MMKError('Unterminated region, missing {}'.format(regex))
 
         out = self.in_str[self.pos:out_idx]
         self.pos = end
         return out
 
-    def skip_chars(self, num, keep: bool = True) -> None:
-        """ Skips the specified number of characters.
+    def get_chars(self, num) -> str:
+        """ Gets the specified number of characters.
         :param num: Number of characters to skip.
         :param keep: Whether to write characters.
         :return: None
         """
+        new = min(self.pos + num, self.size())
+        skipped = self.in_str[self.pos:new]
+        self.pos = new
+        return skipped
 
-        pos = self.pos
-        skipped = self.in_str[pos: pos + num]
-        self.pos = min(pos + num, self.size())
+    def skip_chars(self, num, keep: bool = True):
+        skipped = self.get_chars(num)
         if keep:
             self.put(skipped)
 
-    def skip_spaces(self, keep, exclude=''):
+    def get_spaces(self, exclude='') -> str:
         # Optional exclude newlines, for example. Useful for preserving formatting.
         skipped = ''
 
         whitespace = set(WHITESPACE) - set(exclude)
         while not self.is_eof() and self.peek() in whitespace:
-            if keep:
-                self.put(self.peek())
             skipped += self.get_char()
 
         return skipped
 
-    def get_spaces(self, exclude=''):
-        return self.skip_spaces(False, exclude)
+    def skip_spaces(self, keep: bool, exclude=''):
+        skipped = self.get_spaces(exclude)
+        if keep:
+            self.put(skipped)
 
     # Returns (parse, whitespace = skip_spaces())
     def get_word(self):
@@ -181,8 +206,8 @@ class MMKParser:
         :return: contents of quotes
         """
         if self.get_char() != '"':
-            raise ValueError('string does not start with "')
-        quoted = self.get_until('"')
+            raise MMKError('string does not start with "')
+        quoted = self.get_until(r'"')
         whitespace = self.get_spaces(exclude='\n')
         return quoted, whitespace
 
@@ -281,7 +306,7 @@ class MMKParser:
 
         if self.tuning is None:
             print('Cannot use %tune without a tuning file')
-            raise ValueError
+            raise MMKError
         tuning = self.tuning[brr]
 
         self.put('"{}"{}'.format(brr, whitespace))
@@ -347,7 +372,7 @@ class MMKParser:
                 if rate not in range(max_rate):
                     print('Invalid rate %s for curve %s (rate < %s)' %
                           (raw_rate, curve, hex(max_rate)))
-                    raise ValueError
+                    raise MMKError
 
                 self.put('%s %s%s' % (prefix, frac2hex(begin + rate), whitespace))
                 return
@@ -355,7 +380,7 @@ class MMKParser:
         print('Invalid gain %s, options are:' % repr(curve))
         for curve, _, max_rate in self._GAINS:
             print('%s (rate < %s)' % (curve, hex(max_rate)))
-        raise ValueError
+        raise MMKError
 
     # self.state:
     # PAN, VOL, INSTR: str (Remove segments?)
@@ -364,15 +389,10 @@ class MMKParser:
 
     def parse(self):
         # For exception debug
-        command = None
         try:
             # Remove the header. TODO increment pos instead.
             if self.in_str.startswith(self.SHEBANG):
                 self.in_str = self.in_str[len(self.SHEBANG):].lstrip()  # type: str
-            else:
-                # print('Missing header "%mmk0.1"')
-                # print('Ignoring error...')
-                pass
 
             while self.pos < self.size():
                 # Yeah, simpler this way. But could hide bugs/inconsistencies.
@@ -492,7 +512,7 @@ class MMKParser:
                         continue  # TODO: ADSR
 
                     # INVALID COMMAND
-                    raise ValueError('Invalid command ' + command)
+                    raise MMKError('Invalid command ' + command)
                 else:
                     self.skip_chars(1, keep=True)
                     self.skip_spaces(True)
@@ -519,6 +539,7 @@ class MMKParser:
             print('Last command: ' + last)
             print('Context:')
             print(self.in_str[idx:begin_pos] + '...\n')
+
             raise
 
     def parse_instruments(self, close='}'):
@@ -562,7 +583,7 @@ class MMKParser:
                     self.parse_gain(arg, arg2, trailing, instr=True)
                     continue
 
-                raise ValueError('Invalid command ' + command)
+                raise MMKError('Invalid command ' + command)
             else:
                 self.skip_chars(1, keep=True)
                 self.skip_spaces(True)
@@ -612,7 +633,7 @@ def main():
         with open(tuning_path) as f:
             tuning = yaml.load(f)
             if type(tuning) != dict:
-                raise ValueError('invalid tuning file {}, must be YAML key-value map'.format(tuning_path))
+                raise MMKError('invalid tuning file {}, must be YAML key-value map'.format(tuning_path))
     except FileNotFoundError:
         tuning = None
 
