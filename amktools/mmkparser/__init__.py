@@ -7,6 +7,7 @@
 import argparse
 import os
 import re
+import sys
 from contextlib import contextmanager
 from fractions import Fraction
 from pathlib import Path
@@ -63,6 +64,9 @@ TERMINATORS = WHITESPACE + ':,"'
 
 class MMKError(ValueError):
     pass
+
+def perr(*args, **kwargs):
+    print(*args, **kwargs, file=sys.stderr)
 
 
 # Focus on parsing text.
@@ -305,7 +309,7 @@ class MMKParser:
         brr, whitespace = self.get_quoted()
 
         if self.tuning is None:
-            print('Cannot use %tune without a tuning file')
+            perr('Cannot use %tune without a tuning file')
             raise MMKError
         tuning = self.tuning[brr]
 
@@ -370,16 +374,16 @@ class MMKParser:
         for curve_, begin, max_rate in self._GAINS:
             if curve_ == curve:
                 if rate not in range(max_rate):
-                    print('Invalid rate %s for curve %s (rate < %s)' %
+                    perr('Invalid rate %s for curve %s (rate < %s)' %
                           (raw_rate, curve, hex(max_rate)))
                     raise MMKError
 
                 self.put('%s %s%s' % (prefix, frac2hex(begin + rate), whitespace))
                 return
 
-        print('Invalid gain %s, options are:' % repr(curve))
+        perr('Invalid gain %s, options are:' % repr(curve))
         for curve, _, max_rate in self._GAINS:
-            print('%s (rate < %s)' % (curve, hex(max_rate)))
+            perr('%s (rate < %s)' % (curve, hex(max_rate)))
         raise MMKError
 
     # self.state:
@@ -507,7 +511,7 @@ class MMKParser:
                     # 4 ARGUMENTS
                     arg4, trailing = self.get_word()
                     if command == 'adsr':
-                        print('ADSR not implemented...')
+                        perr('ADSR not implemented...')
                         # self.parse_adsr(..., instr=False)
                         continue  # TODO: ADSR
 
@@ -535,11 +539,10 @@ class MMKParser:
                 last = 'None'
             else:
                 last = '%' + self._command
-            print()
-            print('Last command: ' + last)
-            print('Context:')
-            print(self.in_str[idx:begin_pos] + '...\n')
-
+            perr()
+            perr('Last command: ' + last)
+            perr('Context:')
+            perr(self.in_str[idx:begin_pos] + '...\n')
             raise
 
     def parse_instruments(self, close='}'):
@@ -633,9 +636,12 @@ def main():
         with open(tuning_path) as f:
             tuning = yaml.load(f)
             if type(tuning) != dict:
-                raise MMKError('invalid tuning file {}, must be YAML key-value map'.format(tuning_path))
+                perr('invalid tuning file {}, must be YAML key-value map'.format(tuning_path))
+                raise MMKError
     except FileNotFoundError:
         tuning = None
+    except MMKError:
+        return
 
     # OUT PATH
     if 'outpath' in args:
@@ -643,12 +649,16 @@ def main():
     else:
         outpath = remove_ext(first_path) + SUFFIX
 
-    # parse
-
+    # PARSE
     parser = MMKParser(in_str, tuning)
-    outstr = parser.parse()
+    try:
+        outstr = parser.parse()
+    except MMKError as e:
+        if str(e):
+            perr('Error:', str(e))
+        return
     if outstr is None:
-        exit(2)
+        exit(2)     # wtf?
 
     with open(outpath, 'w') as ofile:
         ofile.write(outstr)
