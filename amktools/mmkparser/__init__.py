@@ -228,21 +228,6 @@ class MMKParser:
     def parse_comment(self):
         self.skip_until('\n')
 
-    def parse_braces(self):
-        self.skip_until('}')
-
-    def parse_quotes(self):
-        # TODO what is this?
-        if self.is_quote is True:
-            self.skip_chars(1, keep=True)
-            self.is_quote = False
-        else:
-            final_char = self.skip_until('="')
-            # End quote immediately = no longer quote.
-            # Other delimiters = continue parsing remaining text.
-            if final_char != '"':
-                self.is_quote = True
-
     # Multi-word parsing
 
     def parse_tune(self, brr, adsr, whitespace):
@@ -464,6 +449,23 @@ class MMKParser:
             print('Last command "%' + command + '" Context:')
             print('...' + self.in_str[begin_pos - 100: begin_pos] + '...\n')
             raise
+
+    def parse_braces(self):
+
+        self.skip_until('}')
+
+    def on_quote(self):
+        # Called whenever a quote is discovered.
+        if self.is_quote is True:
+            self.skip_chars(1, keep=True)
+            self.is_quote = False
+        else:
+            final_char = self.skip_until('="')
+            # End quote immediately = no longer quote.
+            # Other delimiters = continue parsing remaining text.
+            if final_char != '"':
+                self.is_quote = True
+
 
 
 def remove_ext(path):
