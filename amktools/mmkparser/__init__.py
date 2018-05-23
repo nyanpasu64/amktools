@@ -11,13 +11,23 @@ import sys
 from contextlib import contextmanager
 from fractions import Fraction
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Pattern
 
 from ruamel.yaml import YAML
+
 
 # We cannot identify instrument macros.
 # The only way to fix that would be to expand macros, which would both complicate the program and
 # make the generated source less human-readable.
+
+
+class MMKError(ValueError):
+    pass
+
+
+def perr(*args, **kwargs):
+    print(*args, **kwargs, file=sys.stderr)
+
 
 yaml = YAML(typ='safe')
 
@@ -62,11 +72,48 @@ WHITESPACE = ' \t\n\r\x0b\f'
 TERMINATORS = WHITESPACE + ':,"'
 
 
-class MMKError(ValueError):
-    pass
+# def find_first(string: str, query, start=0, end: int = None):
+#     """
+#     Find index of first character in query, in string.
+#     :param string: Input string
+#     :param query: (str or set) of characters
+#     :param start:
+#     :param end:
+#     :return: index or None
+#     """
+#
+#     if end is None:
+#         end = len(string)
+#
+#     for i in range(start, end):
+#         char = string[i]
+#         if char in query:
+#             return i
+#     return None
+#
+#     # best = float('inf')
+#     # for char in query:
+#     #     idx = string.find(char, start, end)
+#     #     if idx != -1 and idx <= best:
+#     #         end = best = idx
+#     #
+#     # return
 
-def perr(*args, **kwargs):
-    print(*args, **kwargs, file=sys.stderr)
+
+def any_of(chars) -> Pattern:
+    """ Compile chars into wildcard regex pattern.
+    Match is 0 characters long and does not include char. """
+    chars = ''.join(sorted(chars))
+    regex = '(?=[{}])'.format(re.escape(chars))
+    return re.compile(regex)
+
+
+def none_of(chars) -> Pattern:
+    """ Compile chars into negative-wildcard regex pattern.
+    Match is 0 characters long and does not include non-matched char. """
+    chars = ''.join(sorted(chars))
+    regex = '(?=[^{}])'.format(re.escape(chars))
+    return re.compile(regex)
 
 
 # Focus on parsing text.
@@ -132,25 +179,27 @@ class MMKParser:
         self.pos = end
 
     # **** Parsing ****
-    def get_until(self, regex, inclusive=False, loose=False):
+    def get_until(self, regex: Union[Pattern, str], strict) -> str:
         """
         Read until first regex match. Move pos after end of regex.
 
         :param regex: Regex pattern terminating region.
         :param inclusive: Whether to return terminating regex in return value.
-        :param loose: If no match, whether to return region to EOF.
+        :param strict: If true, throws exception on failure. If false, returns in_str[pos:size()].
         :return: Text until regex match (optionally inclusive).
         """
-        pattern = re.compile(regex)
-        match = pattern.search(self.in_str, self.pos)
+        inclusive = False
+
+        regex = re.compile(regex)
+        match = regex.search(self.in_str, self.pos)
         if match:
             end = match.end()
             out_idx = end if inclusive else match.start()
-        elif loose:
+        elif not strict:
             end = self.size()
             out_idx = end
         else:
-            raise MMKError('Unterminated region, missing {}'.format(regex))
+            raise MMKError('Unterminated region, missing "{}"'.format(regex.pattern))
 
         out = self.in_str[self.pos:out_idx]
         self.pos = end
@@ -172,14 +221,35 @@ class MMKParser:
         if keep:
             self.put(skipped)
 
+    # High-level matching functions
+    # Returns (parse, whitespace = skip_spaces())
+
+    TERMINATORS_REGEX = any_of(TERMINATORS)  # 0-character match
+
+    def get_word(self) -> str:
+        """ Removes all leading spaces, but only trailing spaces up to the first \n.
+        That helps preserve formatting.
+        :return: (word, trailing whitespace)
+        """
+
+        self.skip_spaces(False)
+
+        word = self.get_until(self.TERMINATORS_REGEX, strict=False)
+        assert word
+        whitespace = self.get_spaces(exclude='\n')
+
+        if word.startswith('%'):
+            assert False
+            word = self.defines.get(word[1:], word)     # dead code?
+        return word, whitespace
+
+
     def get_spaces(self, exclude='') -> str:
-        # Optional exclude newlines, for example. Useful for preserving formatting.
         skipped = ''
 
         whitespace = set(WHITESPACE) - set(exclude)
-        while not self.is_eof() and self.peek() in whitespace:
-            skipped += self.get_char()
-
+        not_whitespace = none_of(whitespace)    # 0-character match
+        skipped = self.get_until(not_whitespace, strict=False)
         return skipped
 
     def skip_spaces(self, keep: bool, exclude=''):
@@ -187,23 +257,6 @@ class MMKParser:
         if keep:
             self.put(skipped)
 
-    # Returns (parse, whitespace = skip_spaces())
-    def get_word(self):
-        """ Removes all leading spaces, but only trailing spaces up to the first \n.
-        That helps preserve formatting.
-        :return: (word, trailing whitespace)
-        """
-
-        self.skip_spaces(False, exclude='')
-
-        word = ''
-        while not self.peek() in TERMINATORS:
-            word += self.get_char()
-        whitespace = self.get_spaces(exclude='\n')
-
-        if word.startswith('%'):
-            word = self.defines.get(word[1:], word)
-        return word, whitespace
 
     def get_quoted(self):
         """
@@ -211,7 +264,7 @@ class MMKParser:
         """
         if self.get_char() != '"':
             raise MMKError('string does not start with "')
-        quoted = self.get_until(r'"')
+        quoted = self.get_until(r'["]', strict=True)
         whitespace = self.get_spaces(exclude='\n')
         return quoted, whitespace
 
@@ -599,6 +652,7 @@ def remove_ext(path):
 
 TUNING = 'tuning.yaml'
 SUFFIX = '.out.txt'
+
 
 def main():
     parser = argparse.ArgumentParser(
