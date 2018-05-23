@@ -499,9 +499,26 @@ class MMKParser:
 
             return ''.join(self.out).strip() + '\n'
         except Exception:
+            # Seek at least 100 characters back
+            begin_pos = self._begin_pos
+            idx = begin_pos
+            while 1:
+                idx = self.in_str.rfind('\n', 0, idx)
+                if idx == -1:
+                    idx = 0
+                    break
+                if begin_pos - idx >= 100:
+                    idx += 1
+                    break
+
+            if self._command is None:
+                last = 'None'
+            else:
+                last = '%' + self._command
             print()
-            print('Last command "%' + command + '" Context:')
-            print('...' + self.in_str[begin_pos - 100: begin_pos] + '...\n')
+            print('Last command: ' + last)
+            print('Context:')
+            print(self.in_str[idx:begin_pos] + '...\n')
             raise
 
     def parse_instruments(self, close='}'):
