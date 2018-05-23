@@ -208,7 +208,6 @@ class MMKParser:
     def get_chars(self, num) -> str:
         """ Gets the specified number of characters.
         :param num: Number of characters to skip.
-        :param keep: Whether to write characters.
         :return: None
         """
         new = min(self.pos + num, self.size())
@@ -579,24 +578,25 @@ class MMKParser:
             # Seek at least 100 characters back
             begin_pos = self._begin_pos
             idx = begin_pos
-            while 1:
+            for i in range(2):
                 idx = self.in_str.rfind('\n', 0, idx)
                 if idx == -1:
-                    idx = 0
                     break
                 if begin_pos - idx >= 100:
-                    idx += 1
                     break
+            idx += 1
 
             if self._command is None:
                 last = 'None'
             else:
                 last = '%' + self._command
             perr()
+            perr('#### MMK parsing error ####')
             perr('Last command: ' + last)
             perr('Context:')
             perr(self.in_str[idx:begin_pos] + '...\n')
-            raise
+
+            raise  # main() eats MMKError to avoid visual noise
 
     def parse_instruments(self, close='}'):
         """
