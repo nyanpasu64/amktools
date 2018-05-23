@@ -11,6 +11,7 @@ from decimal import Decimal
 from fractions import Fraction
 from typing import List, Dict
 
+from ruamel.yaml import YAML
 from sf2utils.sample import Sf2Sample
 from sf2utils.sf2parse import Sf2File
 
@@ -18,7 +19,7 @@ from amktools.wav2brr import tuning
 from amktools.wav2brr.util import AttrDict
 from amktools.wav2brr.tuning import note2ratio
 
-
+yaml = YAML(typ='safe')
 logging.root.setLevel(logging.ERROR)  # to silence overly pedantic SF2File
 
 VERBOSE = ('--verbose' in sys.argv)
@@ -86,12 +87,14 @@ def search(regex, s):
     return regex.search(s).group(1)
 
 
+WAV_EXT = '.wav'
+BRR_EXT = '.brr'
 class Converter:
 
     def __init__(self, name, wav='.', brr='.', transpose=0):
         self.name = name
-        self.wavname = wav + '/' + name + '.wav'
-        self.brrname = brr + '/' + name + '.brr'
+        self.wavname = wav + '/' + name + WAV_EXT
+        self.brrname = brr + '/' + name + BRR_EXT
         self.transpose = transpose
 
         w = wave.open(self.wavname)
@@ -206,10 +209,10 @@ def convert_cfg(cfg_path: str, name2sample: 'Dict[str, Sf2Sample]'):
     # Skip tilde-folders.
     if cfg_path[0] == '~': return
 
-    name = cfg_path[:cfg_path.rfind('.')]   # folder/cfg
-    cfg_name = name[name.rfind('/') + 1:]   # cfg
+    cfg_prefix = cfg_path[:cfg_path.rfind('.')]   # folder/cfg
+    cfg_fname = cfg_prefix[cfg_prefix.rfind('/') + 1:]   # cfg
 
-    if VERBOSE: print('~~~~~', name, '~~~~')
+    if VERBOSE: print('~~~~~', cfg_prefix, '~~~~')
 
     try:
         with open(cfg_path) as cfgfile:
@@ -227,12 +230,12 @@ def convert_cfg(cfg_path: str, name2sample: 'Dict[str, Sf2Sample]'):
         # TODO dirty code, refactor into WavSample
         # FIXME sample = config.get('sample', None)     # type: ISample
         sample = None
-        if bool(sample) or cfg_name not in name2sample:     # wtf
+        if bool(sample) or cfg_fname not in name2sample:     # wtf
             sample = AttrDict(sample or {})                 # wtf
             set_maybe(sample, 'pitch_correction', 0)        # burn set_maybe with fire
-            set_maybe(sample, 'name', cfg_name)
+            set_maybe(sample, 'name', cfg_fname)
         else:
-            sample = name2sample[cfg_name]
+            sample = name2sample[cfg_fname]
         if transpose:
             sample.original_pitch -= transpose
 
@@ -249,7 +252,7 @@ def convert_cfg(cfg_path: str, name2sample: 'Dict[str, Sf2Sample]'):
             except AttributeError:
                 pass
 
-        conv = Converter(name, transpose=transpose)
+        conv = Converter(cfg_prefix, transpose=transpose)
         sample.sample_rate = conv.rate
 
         if volume != 1:
@@ -261,12 +264,15 @@ def convert_cfg(cfg_path: str, name2sample: 'Dict[str, Sf2Sample]'):
         ratio = conv.convert(ratio=ratio, loop=loop, truncate=truncate, decode=True)    # FIXME command line args
         shutil.copy(conv.brrname, WAV2AMK + 'samples/' + PROJECT)
 
-        tuning.brr_tune(sample, ratio)     # calls print
+        tune = tuning.brr_tune(sample, ratio)[1]
+        print(cfg_fname, tune)
 
         if VERBOSE: print()
 
+        return cfg_fname + BRR_EXT, tune
+
     except Exception:
-        print('At file', name, file=sys.stderr)
+        print('At file', cfg_prefix, file=sys.stderr)
         raise
 
 
@@ -284,6 +290,9 @@ def main(sf2_name):
         for wat in glob.glob('*'):
             os.remove(wat)
 
+    from amktools.common import TUNING
+    tunings = {}
+
     with pushd(WAV):
         folders = [f[:-1] for f in glob.glob('*/') if '~' not in f]
         configs = [f[:f.find('\\')] for f in glob.glob('*/*.cfg*') if '~' not in f]
@@ -295,10 +304,11 @@ def main(sf2_name):
 
         for cfg_path in sorted(glob.glob(r'*/*.cfg')):  # type: str
             cfg_path = cfg_path.replace('\\', '/')
-            convert_cfg(cfg_path, name2sample)
+            name, tune = convert_cfg(cfg_path, name2sample)
+            tunings[name] = tune
 
-    # FIXME
-    # os.system('build.cmd')
+    with open(TUNING, 'w') as f:
+        yaml.dump(tunings, f)
 
 
 if __name__ == '__main__':
