@@ -72,34 +72,6 @@ WHITESPACE = ' \t\n\r\x0b\f,:'
 TERMINATORS = WHITESPACE + '"'
 
 
-# def find_first(string: str, query, start=0, end: int = None):
-#     """
-#     Find index of first character in query, in string.
-#     :param string: Input string
-#     :param query: (str or set) of characters
-#     :param start:
-#     :param end:
-#     :return: index or None
-#     """
-#
-#     if end is None:
-#         end = len(string)
-#
-#     for i in range(start, end):
-#         char = string[i]
-#         if char in query:
-#             return i
-#     return None
-#
-#     # best = float('inf')
-#     # for char in query:
-#     #     idx = string.find(char, start, end)
-#     #     if idx != -1 and idx <= best:
-#     #         end = best = idx
-#     #
-#     # return
-
-
 def any_of(chars) -> Pattern:
     """ Compile chars into wildcard regex pattern.
     Match is 0 characters long and does not include char. """
@@ -578,7 +550,7 @@ class MMKParser:
             # Seek at least 100 characters back
             begin_pos = self._begin_pos
             idx = begin_pos
-            for i in range(2):
+            for i in range(3):
                 idx = self.in_str.rfind('\n', 0, idx)
                 if idx == -1:
                     break
@@ -592,8 +564,8 @@ class MMKParser:
                 last = '%' + self._command
             perr()
             perr('#### MMK parsing error ####')
-            perr('Last command: ' + last)
-            perr('Context:')
+            perr('  Last command: ' + last)
+            perr('  Context:')
             perr(self.in_str[idx:begin_pos] + '...\n')
 
             raise  # main() eats MMKError to avoid visual noise
@@ -650,9 +622,11 @@ def remove_ext(path):
     return head
 
 
-TUNING = 'tuning.yaml'
+from amktools.common import TUNING
 SUFFIX = '.out.txt'
 
+
+ERR = 1
 
 def main():
     parser = argparse.ArgumentParser(
@@ -695,7 +669,7 @@ def main():
     except FileNotFoundError:
         tuning = None
     except MMKError:
-        return
+        exit(ERR)
 
     # OUT PATH
     if 'outpath' in args:
@@ -710,11 +684,15 @@ def main():
     except MMKError as e:
         if str(e):
             perr('Error:', str(e))
-        return
+        exit(ERR)
     if outstr is None:
-        exit(2)  # wtf?
+        exit(ERR)
 
     with open(outpath, 'w') as ofile:
         ofile.write(outstr)
 
     # subprocess.call('build.cmd')
+
+
+if __name__ == '__main__':
+    main()

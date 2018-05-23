@@ -10,15 +10,6 @@ from amktools.mmkparser import MMKError, any_of, none_of
 
 # Util testing
 
-# def test_find_first():
-#     s = 'fasdffsdfdsafsadsfsdafsdaf'
-#
-#     assert find_first(s, '!') is None
-#     assert find_first(s, '!', 2, 1) is None
-#
-#     s = 'aaaaaaaaaaaaaaaaa'
-#     assert find_first(s, '!', 2, 1) is None
-
 
 def test_regex():
     string = 'a' * 16 + 'cb'
