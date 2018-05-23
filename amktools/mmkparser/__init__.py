@@ -6,19 +6,16 @@
 
 import argparse
 import os
-from ruamel.yaml import YAML
+import re
 from fractions import Fraction
-
-# Pretend macros don't exist, because they're too much trouble.
-# Commands are parsed at macro-define, not macro-eval.
-# Additionally, we cannot identify instrument macros. Doesn't matter if I remove segmenting.
-# The only way to fix that would be to expand macros, which would both complicate the program and
-# make the generated source less human-readable.
-
-# Now I am keeping the segmentation concept, but discarding the volume preservation. Too difficult.
 from pathlib import Path
 from typing import Dict, List, Union
 
+from ruamel.yaml import YAML
+
+# We cannot identify instrument macros.
+# The only way to fix that would be to expand macros, which would both complicate the program and
+# make the generated source less human-readable.
 
 yaml = YAML(typ='safe')
 
@@ -59,7 +56,8 @@ def vol_midi2smw(midi_vol):
     return round(smw_vol)
 
 
-DELIMITERS = ' \t\n\r\x0b\f:,"'
+WHITESPACE = ' \t\n\r\x0b\f'
+TERMINATORS = WHITESPACE + ':,"'
 
 
 # Focus on parsing text.
@@ -67,7 +65,7 @@ class MMKParser:
     SHEBANG = '%mmk0.1'
     SEGMENT = str
 
-    def __init__(self, in_str, tuning: Union[dict, None]):
+    def __init__(self, in_str: str, tuning: Union[dict, None]):
         self.in_str = in_str
         self.tuning = tuning
 
@@ -76,12 +74,16 @@ class MMKParser:
         self.state = self.orig_state.copy()
         self.defines = {}  # type: Dict[str, str]
 
+        # unused
         self.currseg = -1
         self.seg_text = {}  # type: Dict[int, List[self.SEGMENT]]
+
         self.pos = 0
         self.out = []
 
-        self.is_quote = False
+        # debug
+        self._command = None
+        self._begin_pos = 0
 
     # TODO MshFile object with read methods, line counts.
 
@@ -104,6 +106,30 @@ class MMKParser:
         return out
 
     # **** Parsing ****
+    def get_until(self, regex, inclusive=False, loose=False):
+        """
+        Read until first regex match. Move pos after end of regex.
+
+        :param regex: Regex pattern terminating region.
+        :param inclusive: Whether to return terminating regex in return value.
+        :param loose: If no match, whether to return region to EOF.
+        :return: Text until regex match (optionally inclusive).
+        """
+        pattern = re.compile(regex)
+        match = pattern.search(self.in_str, self.pos)
+        if match:
+            end = match.end()
+            out_idx = end if inclusive else match.start()
+        elif loose:
+            end = self.size()
+            out_idx = end
+        else:
+            raise ValueError('Unterminated region, missing {}'.format(regex))
+
+        out = self.in_str[self.pos:out_idx]
+        self.pos = end
+        return out
+
     def skip_chars(self, num, keep: bool = True) -> None:
         """ Skips the specified number of characters.
         :param num: Number of characters to skip.
@@ -117,8 +143,22 @@ class MMKParser:
         if keep:
             self.put(skipped)
 
-    # ****
+    def skip_spaces(self, keep, exclude=''):
+        # Optional exclude newlines, for example. Useful for preserving formatting.
+        skipped = ''
 
+        whitespace = set(WHITESPACE) - set(exclude)
+        while not self.is_eof() and self.peek() in whitespace:
+            if keep:
+                self.put(self.peek())
+            skipped += self.get_char()
+
+        return skipped
+
+    def get_spaces(self, exclude=''):
+        return self.skip_spaces(False, exclude)
+
+    # Returns (parse, whitespace = skip_spaces())
     def get_word(self):
         """ Removes all leading spaces, but only trailing spaces up to the first \n.
         That helps preserve formatting.
@@ -128,13 +168,23 @@ class MMKParser:
         self.skip_spaces(False, exclude='')
 
         word = ''
-        while not self.peek() in DELIMITERS:
+        while not self.peek() in TERMINATORS:
             word += self.get_char()
-        trailing = self.skip_spaces(False, exclude='\n')
+        whitespace = self.get_spaces(exclude='\n')
 
         if word.startswith('%'):
             word = self.defines.get(word[1:], word)
-        return word, trailing
+        return word, whitespace
+
+    def get_quoted(self):
+        """
+        :return: contents of quotes
+        """
+        if self.get_char() != '"':
+            raise ValueError('string does not start with "')
+        quoted = self.get_until('"')
+        whitespace = self.get_spaces(exclude='\n')
+        return quoted, whitespace
 
     def get_line(self):
         self.skip_spaces(False, exclude='')
@@ -142,27 +192,15 @@ class MMKParser:
         line = ''
         while not self.peek() == '\n':  # fixme shlemiel the painter
             line += self.get_char()
-        trailing = ''
-        return line, trailing
+        whitespace = ''
+        return line, whitespace
 
+    # Returns parse (doesn't fetch trailing whitespace)
     def get_int(self):
-        # Gets an integer. No whitespace needed.
         buffer = ''
         while self.peek().isdigit():
             buffer += self.get_char()
         return parse_int_round(buffer)
-
-    def skip_spaces(self, keep, exclude=''):
-        # Optional exclude newlines, for example. Useful for preserving formatting.
-        skipped = ''
-
-        delimiters = set(DELIMITERS) - set(exclude)
-        while not self.is_eof() and self.peek() in delimiters:
-            if keep:
-                self.put(self.peek())
-            skipped += self.get_char()
-
-        return skipped
 
     def put(self, pstr):
         if self.currseg == -1:
@@ -182,6 +220,12 @@ class MMKParser:
         return str(round(vol))
 
     # Begin parsing functions!
+    def parse_define(self, command_case, trailing):
+        if command_case in self.defines:
+            self.put(self.defines[command_case] + trailing)
+            return True
+        return False
+
     def parse_vol(self):
         self.skip_chars(1, keep=False)
         self.skip_spaces(True)
@@ -230,13 +274,20 @@ class MMKParser:
 
     # Multi-word parsing
 
-    def parse_tune(self, brr, adsr, whitespace):
+    def parse_tune(self):
+        # "test.brr" $ad $sr $gain $tune $tune
+
+        brr, whitespace = self.get_quoted()
+
         if self.tuning is None:
             print('Cannot use %tune without a tuning file')
             raise ValueError
-
         tuning = self.tuning[brr]
-        self.put('{} {} {}{}'.format(brr, tuning, adsr, whitespace))
+
+        self.put('"{}"{}'.format(brr, whitespace))
+        with self.end_at('\n'):
+            self.parse_instruments()    # adsr+gain
+        self.put(' {}'.format(tuning))
 
     def parse_pbend(self, delay, time, note, whitespace):
         # Takes a fraction of a quarter note as input.
@@ -280,9 +331,15 @@ class MMKParser:
         _GAINS[i].append(_GAINS[i + 1][1] - _GAINS[i][1])
     _GAINS = _GAINS[:-1]
 
-    def parse_gain(self, curve, rate, whitespace):
+    def parse_gain(self, curve, rate, whitespace, *, instr):
         # Look for a matching GAIN value, ensure the input rate lies in-bounds,
         # then write a hex command.
+
+        if instr:
+            prefix = '$00 $00'
+        else:
+            prefix = '$ED $80'
+
         raw_rate = rate
         rate = parse_int_hex(rate)
         for curve_, begin, max_rate in self._GAINS:
@@ -292,7 +349,7 @@ class MMKParser:
                           (raw_rate, curve, hex(max_rate)))
                     raise ValueError
 
-                self.put('$ED $80 %s%s' % (frac2hex(begin + rate), whitespace))
+                self.put('%s %s%s' % (prefix, frac2hex(begin + rate), whitespace))
                 return
 
         print('Invalid gain %s, options are:' % repr(curve))
@@ -308,23 +365,23 @@ class MMKParser:
     def parse(self):
         # For exception debug
         command = None
-        begin_pos = 0
         try:
             # Remove the header. TODO increment pos instead.
             if self.in_str.startswith(self.SHEBANG):
-                self.in_str = self.in_str[len(self.SHEBANG):].lstrip()
+                self.in_str = self.in_str[len(self.SHEBANG):].lstrip()  # type: str
             else:
                 # print('Missing header "%mmk0.1"')
                 # print('Ignoring error...')
                 pass
 
             while self.pos < self.size():
-                self.skip_spaces(
-                    True)  # Yeah, simpler this way. But could hide bugs/inconsistencies.
+                # Yeah, simpler this way. But could hide bugs/inconsistencies.
+                self.skip_spaces(True)
+
                 if self.pos == self.size():
                     break
-                    # Only whitespace left, means already printed, nothing more to do
-                begin_pos = self.pos
+                    # FIXME COMMENT Only whitespace left, means already printed, nothing more to do
+                self._begin_pos = self.pos
                 char = self.peek()
 
                 # Parse the no-argument default commands.
@@ -340,8 +397,10 @@ class MMKParser:
                     self.parse_comment()
                     continue
 
-                if char == '{':
-                    self.parse_braces()
+                if char == '{':     #instruments{}
+                    self.skip_chars(1, keep=True)
+                    self.skip_spaces(True)
+                    self.parse_instruments()
                     continue
                 #
                 # if char == '"':
@@ -355,9 +414,9 @@ class MMKParser:
                     # NO ARGUMENTS
                     command_case, trailing = self.get_word()
                     command = command_case.lower()
+                    self._command = command
 
-                    if command_case in self.defines:
-                        self.put(self.defines[command_case] + trailing)
+                    if self.parse_define(command_case, trailing):
                         continue
 
                     if command == 'mmk0.1':
@@ -393,11 +452,6 @@ class MMKParser:
                         self.state['ispan'] = False
                         continue
 
-                    if command == 'tune':
-                        brr = self.get_quotes()
-                        adsr = self.get_line()
-                        self.parse_tune(brr, adsr, '')
-
                     # ONE ARGUMENT
                     arg, trailing = self.get_word()
 
@@ -412,7 +466,7 @@ class MMKParser:
                         continue
 
                     if command == 'gain':
-                        self.parse_gain(arg, arg2, trailing)
+                        self.parse_gain(arg, arg2, trailing, instr=False)
                         continue
 
                     # 3 ARGUMENTS
@@ -434,6 +488,7 @@ class MMKParser:
                     arg4, trailing = self.get_word()
                     if command == 'adsr':
                         print('ADSR not implemented...')
+                        # self.parse_adsr(..., instr=False)
                         continue  # TODO: ADSR
 
                     # INVALID COMMAND
@@ -441,7 +496,6 @@ class MMKParser:
                 else:
                     self.skip_chars(1, keep=True)
                     self.skip_spaces(True)
-                    # done processing the command
 
             return ''.join(self.out).strip() + '\n'
         except Exception:
@@ -450,22 +504,51 @@ class MMKParser:
             print('...' + self.in_str[begin_pos - 100: begin_pos] + '...\n')
             raise
 
-    def parse_braces(self):
+    def parse_instruments(self, close='}'):
+        """
+        Parses #instruments{...} blocks. Eats trailing close-brace.
+        Also used for parsing quoted BRR filenames within #instruments.
+        :param close: Which characters close the current block.
+        :return: None
+        """
+        while self.pos < self.size():
+            # pos = self.pos
+            self.skip_spaces(True, exclude=close)
+            self._begin_pos = self.pos
+            # assert pos == self.pos
+            char = self.peek()
 
-        self.skip_until('}')
+            if char in close:
+                self.skip_chars(1, True)                # {}, ""
+                self.skip_spaces(True, exclude='\n')
+                return
 
-    def on_quote(self):
-        # Called whenever a quote is discovered.
-        if self.is_quote is True:
-            self.skip_chars(1, keep=True)
-            self.is_quote = False
-        else:
-            final_char = self.skip_until('="')
-            # End quote immediately = no longer quote.
-            # Other delimiters = continue parsing remaining text.
-            if final_char != '"':
-                self.is_quote = True
+            if char == '%':
+                self.skip_chars(1, False)
 
+                command_case, trailing = self.get_word()
+                command = command_case.lower()
+                self._command = command
+
+                # **** Parse defines ****
+                if self.parse_define(command_case, trailing):
+                    continue
+
+                # **** Parse commands ****
+                if command == 'tune':
+                    self.parse_tune()
+                    continue
+
+                arg, trailing = self.get_word()
+                arg2, trailing = self.get_word()
+                if command == 'gain':
+                    self.parse_gain(arg, arg2, trailing, instr=True)
+                    continue
+
+                raise ValueError('Invalid command ' + command)
+            else:
+                self.skip_chars(1, keep=True)
+                self.skip_spaces(True)
 
 
 def remove_ext(path):
