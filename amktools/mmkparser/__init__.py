@@ -68,8 +68,8 @@ def vol_midi2smw(midi_vol):
     return round(smw_vol)
 
 
-WHITESPACE = ' \t\n\r\x0b\f'
-TERMINATORS = WHITESPACE + ':,"'
+WHITESPACE = ' \t\n\r\x0b\f,:'
+TERMINATORS = WHITESPACE + '"'
 
 
 # def find_first(string: str, query, start=0, end: int = None):
@@ -367,7 +367,7 @@ class MMKParser:
 
         self.put('"{}"{}'.format(brr, whitespace))
         with self.end_at('\n'):
-            self.parse_instruments()    # adsr+gain
+            self.parse_instruments()  # adsr+gain
         self.put(' {}'.format(tuning))
 
     def parse_pbend(self, delay, time, note, whitespace):
@@ -427,7 +427,7 @@ class MMKParser:
             if curve_ == curve:
                 if rate not in range(max_rate):
                     perr('Invalid rate %s for curve %s (rate < %s)' %
-                          (raw_rate, curve, hex(max_rate)))
+                         (raw_rate, curve, hex(max_rate)))
                     raise MMKError
 
                 self.put('%s %s%s' % (prefix, frac2hex(begin + rate), whitespace))
@@ -473,7 +473,7 @@ class MMKParser:
                     self.parse_comment()
                     continue
 
-                if char == '{':     #instruments{}
+                if char == '{':  # instruments{}
                     self.skip_chars(1, keep=True)
                     self.skip_spaces(True)
                     self.parse_instruments()
@@ -613,7 +613,7 @@ class MMKParser:
             char = self.peek()
 
             if char in close:
-                self.skip_chars(1, True)                # {}, ""
+                self.skip_chars(1, True)  # {}, ""
                 self.skip_spaces(True, exclude='\n')
                 return
 
@@ -712,7 +712,7 @@ def main():
             perr('Error:', str(e))
         return
     if outstr is None:
-        exit(2)     # wtf?
+        exit(2)  # wtf?
 
     with open(outpath, 'w') as ofile:
         ofile.write(outstr)
