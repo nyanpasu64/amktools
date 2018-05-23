@@ -14,9 +14,9 @@ from typing import List, Dict
 from sf2utils.sample import Sf2Sample
 from sf2utils.sf2parse import Sf2File
 
-from amktools import wav2brr
-from amktools.util import AttrDict
-from amktools.wav2brr import ISample, note2ratio
+from amktools.wav2brr import tuning
+from amktools.wav2brr.util import AttrDict
+from amktools.wav2brr.tuning import note2ratio
 
 
 logging.root.setLevel(logging.ERROR)  # to silence overly pedantic SF2File
@@ -261,7 +261,7 @@ def convert_cfg(cfg_path: str, name2sample: 'Dict[str, Sf2Sample]'):
         ratio = conv.convert(ratio=ratio, loop=loop, truncate=truncate, decode=True)    # FIXME command line args
         shutil.copy(conv.brrname, WAV2AMK + 'samples/' + PROJECT)
 
-        wav2brr.brr_tune(sample, ratio)     # calls print
+        tuning.brr_tune(sample, ratio)     # calls print
 
         if VERBOSE: print()
 

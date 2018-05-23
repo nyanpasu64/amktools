@@ -3,7 +3,7 @@ from typing import Union
 
 from sf2utils.sample import Sf2Sample
 
-from amktools.util import WavSample
+from amktools.wav2brr.util import WavSample
 
 
 # TODO confusing filename, tuning.py?
