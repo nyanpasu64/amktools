@@ -54,8 +54,9 @@ def parse_frac(infrac):
     return Fraction(infrac)
 
 
-def frac2hex(in_frac):
-    return '$' + hex(int(in_frac))[2:].zfill(2)
+def int2hex(in_frac):
+    value = '$%02x' % int(in_frac)
+    return value
 
 
 QUARTER_TO_TICKS = 0x30
@@ -345,28 +346,28 @@ class MMKParser:
     def parse_pbend(self, delay, time, note, whitespace):
         # Takes a fraction of a quarter note as input.
         # Converts to ticks.
-        delay_hex = frac2hex(parse_frac(delay) * QUARTER_TO_TICKS)
-        time_hex = frac2hex(parse_frac(time) * QUARTER_TO_TICKS)
+        delay_hex = int2hex(parse_frac(delay) * QUARTER_TO_TICKS)
+        time_hex = int2hex(parse_frac(time) * QUARTER_TO_TICKS)
 
         self.put('$DD {} {} {}{}'.format(delay_hex, time_hex, note, whitespace))
 
     def parse_vbend(self, time, vol, whitespace):
         # Takes a fraction of a quarter note as input.
         # Converts to ticks.
-        time_hex = frac2hex(parse_frac(time) * QUARTER_TO_TICKS)
+        time_hex = int2hex(parse_frac(time) * QUARTER_TO_TICKS)
         vol_hex = self.parse_vol_hex(vol)
 
         self.put('$E8 {} {}{}'.format(time_hex, vol_hex, whitespace))
 
     def parse_vib(self, delay, frequency, amplitude, whitespace):
-        delay_hex = frac2hex(parse_frac(delay) * QUARTER_TO_TICKS)
-        freq_hex = frac2hex(parse_frac(frequency))
+        delay_hex = int2hex(parse_frac(delay) * QUARTER_TO_TICKS)
+        freq_hex = int2hex(parse_frac(frequency))
 
         self.put('$DE {} {} {}{}'.format(delay_hex, freq_hex, amplitude, whitespace))
 
     def parse_trem(self, delay, frequency, amplitude, whitespace):
-        delay_hex = frac2hex(parse_frac(delay) * QUARTER_TO_TICKS)
-        freq_hex = frac2hex(parse_frac(frequency))
+        delay_hex = int2hex(parse_frac(delay) * QUARTER_TO_TICKS)
+        freq_hex = int2hex(parse_frac(frequency))
 
         self.put('$E5 {} {} {}{}'.format(delay_hex, freq_hex, amplitude, whitespace))
 
@@ -402,13 +403,56 @@ class MMKParser:
                          (raw_rate, curve, hex(max_rate)))
                     raise MMKError
 
-                self.put('%s %s%s' % (prefix, frac2hex(begin + rate), whitespace))
+                self.put('%s %s%s' % (prefix, int2hex(begin + rate), whitespace))
                 return
 
         perr('Invalid gain %s, options are:' % repr(curve))
         for curve, _, max_rate in self._GAINS:
             perr('%s (rate < %s)' % (curve, hex(max_rate)))
         raise MMKError
+
+    def parse_adsr(self, attack: str, decay: str, sustain: str, release: str, instr: bool):
+        """
+        Parse ADSR command.
+        :param attack: Attack speed (0-15)
+        :param decay: Decay speed (0-7)
+        :param sustain: Sustain volume (0-7)
+        :param release: Release speed (0-31)
+        :param instr: Whether ADSR command occurs in instrument definition (or MML command)
+        """
+        if sustain.startswith('full'):
+            sustain = '7'
+        # if release.startswith('inf'):
+        #     release = '0'
+
+        attack = parse_int_hex(attack)
+        decay = parse_int_hex(decay)
+        sustain = parse_int_hex(sustain)
+        release = parse_int_hex(release)
+
+        attack = self._index_check('attack', attack, 0x10)
+        decay = self._index_check('decay', decay, 0x08)
+        sustain = self._index_check('sustain', sustain, 0x08)
+        release = self._index_check('release', release, 0x20)
+
+        a = 0x10 * decay + attack
+        b = 0x20 * sustain + release
+
+        if instr:
+            a += 0x80
+            fmt = '{} {} $00'
+        else:
+            fmt = '$ED {} {}'
+        self.put(fmt.format(int2hex(a), int2hex(b)))
+
+    @staticmethod
+    def _index_check(caption, val, end):
+        if val < 0:
+            val += end
+        if val not in range(end):
+            raise MMKError('Invalid ADSR {} {} (must be < {})'.format(caption, val, end))
+        return val
+
 
     # self.state:
     # PAN, VOL, INSTR: str (Remove segments?)
@@ -509,7 +553,7 @@ class MMKParser:
 
                     # 2 ARGUMENTS
                     arg2, trailing = self.get_word()
-                    if command == 'vbend':
+                    if command in ['vbend', 'vb']:
                         self.parse_vbend(arg, arg2, trailing)
                         continue
 
@@ -528,16 +572,16 @@ class MMKParser:
                         self.parse_trem(arg, arg2, arg3, trailing)
                         continue
 
-                    if command == 'pbend':
+                    if command in ['pbend', 'pb']:
                         self.parse_pbend(arg, arg2, arg3, trailing)
                         continue
 
                     # 4 ARGUMENTS
                     arg4, trailing = self.get_word()
                     if command == 'adsr':
-                        perr('ADSR not implemented...')
-                        # self.parse_adsr(..., instr=False)
-                        continue  # TODO: ADSR
+                        self.parse_adsr(arg, arg2, arg3, arg4, instr=False)
+                        self.put(trailing)
+                        continue
 
                     # INVALID COMMAND
                     raise MMKError('Invalid command ' + command)
@@ -609,6 +653,13 @@ class MMKParser:
                 arg2, trailing = self.get_word()
                 if command == 'gain':
                     self.parse_gain(arg, arg2, trailing, instr=True)
+                    continue
+
+                arg3, trailing = self.get_word()
+                arg4, trailing = self.get_word()
+                if command == 'adsr':
+                    self.parse_adsr(arg, arg2, arg3, arg4, instr=True)
+                    self.put(trailing)
                     continue
 
                 raise MMKError('Invalid command ' + command)
