@@ -199,7 +199,8 @@ class MMKParser:
     TERMINATORS_REGEX = any_of(TERMINATORS)  # 0-character match
 
     def get_word(self) -> str:
-        """ Removes all leading spaces, but only trailing spaces up to the first \n.
+        """ Gets single word from file. If word begins with %, replaces with definition (used for parameters).
+        Removes all leading spaces, but only trailing spaces up to the first \n.
         That helps preserve formatting.
         :return: (word, trailing whitespace)
         """
@@ -211,7 +212,6 @@ class MMKParser:
         whitespace = self.get_spaces(exclude='\n')
 
         if word.startswith('%'):
-            assert False
             word = self.defines.get(word[1:], word)     # dead code?
         return word, whitespace
 
@@ -275,6 +275,7 @@ class MMKParser:
 
     # Begin parsing functions!
     def parse_define(self, command_case, trailing):
+        """ TODO Parse literal define, passthrough. """
         if command_case in self.defines:
             self.put(self.defines[command_case] + trailing)
             return True
@@ -392,7 +393,7 @@ class MMKParser:
         if instr:
             prefix = '$00 $00'
         else:
-            prefix = '$ED $80'
+            prefix = '$FA $01'
 
         raw_rate = rate
         rate = parse_int_hex(rate)
@@ -440,7 +441,7 @@ class MMKParser:
 
         if instr:
             a += 0x80
-            fmt = '{} {} $00'
+            fmt = '{} {} $A0'
         else:
             fmt = '$ED {} {}'
         self.put(fmt.format(int2hex(a), int2hex(b)))
