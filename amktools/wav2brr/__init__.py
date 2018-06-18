@@ -42,6 +42,7 @@ WAV = 'wav/'
 WAV2AMK = '../../addmusick-1.1.0-beta/'
 PROJECT = 'idol1 final hours/'
 
+LOOP_TIMES = 1
 
 def set_maybe(d, key, value):
     # TODO remove this function
@@ -150,7 +151,9 @@ class Converter:
         # TODO: -a attenuation, -g gaussian?
         args = ['-g', self.wavname, self.brrname]
 
-        if loop is not None:
+        is_loop = (loop is not None)
+
+        if is_loop:
             args[0:0] = ['-l' + str(loop)]
 
         if True:
@@ -174,19 +177,18 @@ class Converter:
             assert not NOWRAP
             raise Exception('Wrapping detected!!')
 
-        if loop is not None:
+        if is_loop:
             loop_idx = int(search(loop_regex, output))
-            byte_offset = loop_idx * 9
-            del loop_idx
         else:
-            byte_offset = 0
+            loop_idx = 0
+        byte_offset = loop_idx * 9
 
         wav2brr_ratio = 1 / Fraction(reciprocal_ratio_regex.search(output).group(1))
 
         if VERBOSE: print('loop_bytes', byte_offset)
 
         if decode:
-            self.decode(wav2brr_ratio)
+            self.decode(wav2brr_ratio, loop_idx if is_loop else None)
 
         with open(self.brrname, 'r+b') as brr_file:
             data = byte_offset.to_bytes(2, 'little') + brr_file.read()
@@ -196,10 +198,12 @@ class Converter:
 
         return wav2brr_ratio
 
-    def decode(self, ratio):
+    def decode(self, ratio, loop_idx):
         rate = self.get_rate() * ratio * note2ratio(self.transpose)
         args = ['-g', '-s' + str(round_frac(rate)), self.brrname,
                 self.name + ' decoded.wav']
+        if loop_idx is not None:
+            args[:0] = ['-l{}'.format(loop_idx), '-n{}'.format(LOOP_TIMES)]
         decode_output = brr_decoder[args]()
         if VERBOSE:
             print(decode_output.replace('\r', ''))
