@@ -198,7 +198,7 @@ class Converter:
 
     def decode(self, ratio):
         rate = self.get_rate() * ratio * note2ratio(self.transpose)
-        args = ['-s' + str(round_frac(rate)), self.brrname,
+        args = ['-g', '-s' + str(round_frac(rate)), self.brrname,
                 self.name + ' decoded.wav']
         decode_output = brr_decoder[args]()
         if VERBOSE:
