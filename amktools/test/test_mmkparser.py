@@ -49,12 +49,16 @@ def test_instruments():
 
 def test_commands():
     in_str = ''';
-%vbend,4,255
+%vbend,4,255\t
+%ybend 4 20\t
+;
 '''
     p = mmkparser.MMKParser(in_str, tuning)
     outstr = p.parse()
     assert outstr.lower() == ''';
-$e8 $c0 $ff
+$e8 $c0 $ff\t
+$dc $c0 $14\t
+;
 '''
 
 

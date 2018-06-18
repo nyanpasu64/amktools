@@ -11,7 +11,7 @@ import sys
 from contextlib import contextmanager
 from fractions import Fraction
 from pathlib import Path
-from typing import Dict, List, Union, Pattern
+from typing import Dict, List, Union, Pattern, Tuple
 
 from ruamel.yaml import YAML
 
@@ -89,7 +89,10 @@ def none_of(chars) -> Pattern:
     return re.compile(regex)
 
 
-# Focus on parsing text.
+def parse_time(word: str):
+    return parse_frac(word) * QUARTER_TO_TICKS
+
+
 class MMKParser:
     SHEBANG = '%mmk0.1'
     SEGMENT = str
@@ -136,6 +139,7 @@ class MMKParser:
 
     @contextmanager
     def end_at(self, sub):
+        # FIXME use get_until ';\n'
         end = self.in_str.find(sub, self.pos)
 
         string = self.in_str
@@ -198,7 +202,7 @@ class MMKParser:
 
     TERMINATORS_REGEX = any_of(TERMINATORS)  # 0-character match
 
-    def get_word(self) -> str:
+    def get_word(self) -> Tuple[str, str]:
         """ Gets single word from file. If word begins with %, replaces with definition (used for parameters).
         Removes all leading spaces, but only trailing spaces up to the first \n.
         That helps preserve formatting.
@@ -208,7 +212,8 @@ class MMKParser:
         self.skip_spaces(False)
 
         word = self.get_until(self.TERMINATORS_REGEX, strict=False)
-        assert word
+        if not word:
+            raise MMKError('Tried to get word where none exists (invalid command or missing arguments?)')
         whitespace = self.get_spaces(exclude='\n')
 
         if word.startswith('%'):
@@ -264,15 +269,6 @@ class MMKParser:
         else:
             self.seg_text[self.currseg] = [pstr]
 
-    # **** BEGIN CALCULATION FUNCTIONS ****
-    def calc_vol(self, in_vol):
-        vol = parse_frac(in_vol)
-        vol *= self.state['vmod']
-
-        if self.state['isvol']:
-            vol *= 2
-        return str(round(vol))
-
     # Begin parsing functions!
     def parse_define(self, command_case, trailing):
         """ TODO Parse literal define, passthrough. """
@@ -280,6 +276,16 @@ class MMKParser:
             self.put(self.defines[command_case] + trailing)
             return True
         return False
+
+    # **** volume ****
+
+    def calc_vol(self, in_vol):
+        vol = parse_frac(in_vol)
+        vol *= self.state['vmod']
+
+        if self.state['isvol']:
+            vol *= 2
+        return str(round(vol))
 
     def parse_vol(self):
         self.skip_chars(1, keep=False)
@@ -294,24 +300,47 @@ class MMKParser:
         # Time to throw away state?
         new_vol = self.state['vol'] = self.calc_vol(arg)
         hex_vol = hex(int(new_vol))[2:].zfill(2)
-        return '$' + hex_vol + ' '
+        return '$' + hex_vol
+
+    def parse_vbend(self, time, vol, whitespace):
+        # Takes a fraction of a quarter note as input.
+        # Converts to ticks.
+        time_hex = int2hex(parse_time(time))
+        vol_hex = self.parse_vol_hex(vol)
+
+        self.put('$E8 {} {}{}'.format(time_hex, vol_hex, whitespace))
+
+    # **** pan ****
+
+    def calc_pan(self, orig_pan):
+        # Convert panning
+        if self.state['ispan']:
+            zeroed_pan = parse_frac(orig_pan) - 64
+            scaled_pan = zeroed_pan * self.state['panscale']
+            return str(round(scaled_pan + 10))
+        else:
+            return str(orig_pan)
 
     def parse_pan(self):
         self.skip_chars(1, keep=False)
         self.skip_spaces(True)
         orig_pan = self.get_int()
 
-        # Convert panning
-        if self.state['ispan']:
-            zeroed_pan = parse_frac(orig_pan) - 64
-            scaled_pan = zeroed_pan * self.state['panscale']
-            self.state['pan'] = str(round(scaled_pan + 10))
-        else:
-            self.state['pan'] = str(orig_pan)
+        self.state['pan'] = self.calc_pan(orig_pan)
         # Pass the command through.
         self.put('y' + self.state['pan'])
 
+    def parse_ybend(self, duration, pan):
+        duration_hex = int2hex(parse_time(duration))
+        self.state['pan'] = self.calc_pan(pan)
+        pan_hex = int2hex(self.state['pan'])
+
+        self.put('$DC {} {}'.format(duration_hex, pan_hex))
+
+    # **** meh ****
+
     def skip_until(self, end):
+        # FIXME deprecated
         in_str = self.in_str
         self.skip_chars(1, keep=True)
         end_pos = in_str.find(end, self.pos)
@@ -347,30 +376,26 @@ class MMKParser:
     def parse_pbend(self, delay, time, note, whitespace):
         # Takes a fraction of a quarter note as input.
         # Converts to ticks.
-        delay_hex = int2hex(parse_frac(delay) * QUARTER_TO_TICKS)
-        time_hex = int2hex(parse_frac(time) * QUARTER_TO_TICKS)
+        delay_hex = int2hex(parse_time(delay))
+        time_hex = int2hex(parse_time(time))
 
         self.put('$DD {} {} {}{}'.format(delay_hex, time_hex, note, whitespace))
 
-    def parse_vbend(self, time, vol, whitespace):
-        # Takes a fraction of a quarter note as input.
-        # Converts to ticks.
-        time_hex = int2hex(parse_frac(time) * QUARTER_TO_TICKS)
-        vol_hex = self.parse_vol_hex(vol)
-
-        self.put('$E8 {} {}{}'.format(time_hex, vol_hex, whitespace))
+    # **** oscillatory effects ****
 
     def parse_vib(self, delay, frequency, amplitude, whitespace):
-        delay_hex = int2hex(parse_frac(delay) * QUARTER_TO_TICKS)
+        delay_hex = int2hex(parse_time(delay))
         freq_hex = int2hex(parse_frac(frequency))
 
         self.put('$DE {} {} {}{}'.format(delay_hex, freq_hex, amplitude, whitespace))
 
     def parse_trem(self, delay, frequency, amplitude, whitespace):
-        delay_hex = int2hex(parse_frac(delay) * QUARTER_TO_TICKS)
+        delay_hex = int2hex(parse_time(delay))
         freq_hex = int2hex(parse_frac(frequency))
 
         self.put('$E5 {} {} {}{}'.format(delay_hex, freq_hex, amplitude, whitespace))
+
+    # **** envelope effects ****
 
     _GAINS = [
         # curve, begin, max_rate
@@ -556,6 +581,11 @@ class MMKParser:
                     arg2, trailing = self.get_word()
                     if command in ['vbend', 'vb']:
                         self.parse_vbend(arg, arg2, trailing)
+                        continue
+
+                    if command in ['ybend', 'yb']:
+                        self.parse_ybend(duration=arg, pan=arg2)
+                        self.put(trailing)
                         continue
 
                     if command == 'gain':
