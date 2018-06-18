@@ -313,10 +313,3 @@ def main(sf2_name):
 
     with open(TUNING, 'w') as f:
         yaml.dump(tunings, f)
-
-
-if __name__ == '__main__':
-    if 1 < len(sys.argv):
-        main(sys.argv[1])
-    else:
-        main(None)
