@@ -1,1 +1,1 @@
-TUNING = 'tuning.yaml'
+TUNING_PATH = 'tuning.yaml'

@@ -704,7 +704,7 @@ def remove_ext(path):
     return head
 
 
-from amktools.common import TUNING
+from amktools.common import TUNING_PATH
 SUFFIX = '.out.txt'
 
 
@@ -722,7 +722,7 @@ def main():
 
     parser.add_argument('files', help='Input files, will be concatenated', nargs='+')
     parser.add_argument('-t', '--tuning',
-                        help='Tuning file produced by convert_brr (defaults to {})'.format(TUNING))
+                        help='Tuning file produced by convert_brr (defaults to {})'.format(TUNING_PATH))
     parser.add_argument('-o', '--outpath', help='Output path (if omitted)')
     args = parser.parse_args()
 
@@ -741,7 +741,7 @@ def main():
     if 'tuning' in args:
         tuning_path = args.tuning
     else:
-        tuning_path = str(Path(first_path, '..', TUNING).resolve())
+        tuning_path = str(Path(first_path, '..', TUNING_PATH).resolve())
     try:
         with open(tuning_path) as f:
             tuning = yaml.load(f)

@@ -1,27 +1,21 @@
 from fractions import Fraction
-from typing import Union
 
-from sf2utils.sample import Sf2Sample
-
-from amktools.wav2brr.util import WavSample
-
-
-# TODO confusing filename, tuning.py?
-
-ISample = Union[WavSample, Sf2Sample]
+from amktools.wav2brr.util import ISample as _ISample
 
 
 def note2ratio(note, cents=0):
+    """ Converts semitones to a frequency ratio. """
     ratio = 2 ** ((note + cents / 100) / 12)
     return ratio
 
 
 def note2pitch(note, cents=0):
+    """ Converts a MIDI note to an absolute frequency (Hz). """
     freq = 440 * note2ratio(note - 69, cents)
     return freq
 
 
-def brr_tune(sample: ISample, ratio):
+def brr_tune(sample: _ISample, ratio):
     ratio = Fraction(ratio)
     freq = note2pitch(sample.original_pitch, sample.pitch_correction)
     # Absolute frequencies unsupported. (original_pitch is correct in DS Rainbow Road percussion)
