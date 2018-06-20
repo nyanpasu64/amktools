@@ -1,3 +1,8 @@
+from typing import Union
+
+from sf2utils.sample import Sf2Sample as _Sf2Sample
+
+
 class AttrDict(dict):
     def __init__(self, seq=None, **kwargs):
         if seq is None:
@@ -7,7 +12,7 @@ class AttrDict(dict):
         self.__dict__ = self
 
 
-class WavSample(object):
+class WavSample:
     def __init__(self):
         self.name = None
 
@@ -26,3 +31,6 @@ class WavSample(object):
     @property
     def loop_duration(self):
         return self.end_loop - self.start_loop
+
+
+ISample = Union[WavSample, _Sf2Sample]
