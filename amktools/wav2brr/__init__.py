@@ -275,8 +275,11 @@ class Converter:
         if is_loop:
             args[0:0] = ['-l' + str(loop)]
 
-        if ratio != 1:
-            args[0:0] = ['-rl' + str(round_frac(1 / ratio))]
+        # Even if ratio=1, encoder may resample slightly, to ensure loop is
+        # multiple of 16. So enable bandlimited sinc to preserve high frequencies.
+        # NOTE: Default linear interpolation is simple, but is garbage at
+        # preserving high frequencies.
+        args[0:0] = ['-rb' + str(round_frac(1 / ratio))]
 
         if opt.nowrap:
             args[0:0] = ['-w']
