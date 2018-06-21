@@ -95,7 +95,13 @@ def main(wav_folder: Path, amk_folder: Path, sample_subfolder: Path,
 
     # Compute sample output folder
 
-    sample_folder = (amk_folder / 'samples' / sample_subfolder).resolve()
+    sample_root = (amk_folder / 'samples').resolve()
+    sample_folder = (sample_root / sample_subfolder).resolve()
+
+    if sample_root not in sample_folder.parents:
+        raise click.BadParameter('Sample folder "{}" is not within "{}"\n\n'.format(sample_subfolder, sample_root) +
+                                 'If you use samples/ without a subfolder, entire folder will be cleared!\n')
+
     if not sample_folder.exists():
         print('Creating sample folder', sample_folder)
         os.mkdir(str(sample_folder))
