@@ -84,6 +84,8 @@ def test_sample_dir(filesystem_tree):
     assert result.exit_code == 0
     assert 'Creating sample folder' in result.output
     assert Path(AMK, 'samples', SAMPLE).exists()
+    assert Path('tuning.yaml').exists()
+        # TODO validate contents
 
     # Ensure existing files are backed up, not deleted
     assert '/' not in wav2brr.BACKUP_ROOT
