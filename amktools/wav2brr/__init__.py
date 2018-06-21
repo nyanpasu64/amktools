@@ -24,18 +24,20 @@ from amktools.wav2brr.tuning import note2ratio
 from amktools.wav2brr.util import AttrDict, WavSample, ISample
 
 
-def path_append(*it: Union[Path, str]):
-    for el in it:
-        os.environ['PATH'] += os.pathsep + str(el)
+def path_prepend(*paths: Union[Path, str]):
+    prefixes = [str(path) for path in paths]
+    prefixes.append(os.environ['PATH'])
+    os.environ['PATH'] = os.pathsep.join(prefixes)
 
-path_append(
-    os.curdir,
+path_prepend(
+    # os.getcwd() removed, since my bundled version of brr_encoder fixes wrapping
+    # and we don't want to call old versions ever.
     r'C:\Program Files (x86)\sox-14-4-2',
     r'C:\Program Files\sox-14-4-2',
     Path(__file__).parent / 'exe')
 
 # noinspection PyUnresolvedReferences
-from plumbum.cmd import sox, brr_encoder, brr_decoder, cmd as _cmd
+from plumbum.cmd import sox, brr_encoder, brr_decoder
 
 
 yaml = YAML(typ='safe')
