@@ -10,7 +10,7 @@
 
 `python -m amktools.wav2brr [WAV file root] [path to AMK] [name of destination sample folder]`
 
-- (untested) If you add the `--sf2 [sf2_path]` flag, and name a sample `flute.{wav,cfg}`, it will extract tuning and loop points from the sf2 file's `flute` sample.
+- If you add the `--sf2 [sf2_path]` flag, and name a sample `flute.{wav,cfg}`, it will extract tuning and loop points from the sf2 file's `flute` sample.
 
 Currently, all `--options` are undocumented and missing from `--help`, and the Click CLI is not tested or finalized.
 
