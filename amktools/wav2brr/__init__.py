@@ -173,8 +173,6 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
         with open(cfg_path) as cfgfile:
             cfg = AttrDict(eval(cfgfile.read()))
 
-        loop = cfg.get('loop', 'default')       # type: Optional[int]
-        truncate = cfg.get('truncate', None)    # type: Optional[int]
         ratio = cfg.get('ratio', 1)
         volume = cfg.get('volume', 1)
         transpose = cfg.get('transpose', 0)
@@ -188,6 +186,7 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
             sample = WavSample()
             sample.pitch_correction = 0
             sample.name = cfg_fname
+            # All other attributes/fields default to None
 
         # Transpose sample.
 
@@ -197,13 +196,19 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
         if at is not None:
             sample.original_pitch = at
             sample.pitch_correction = 0
-            # FIXME fixed pitch no longer implies "disable looping by default".
 
         # Loop sample.
 
-        if loop == 'default':
-            loop = sample.start_loop
-            truncate = sample.end_loop
+        loop = sample.start_loop    # type: Optional[int]
+        truncate = sample.end_loop  # type: Optional[int]
+
+        if 'loop' in cfg:
+            loop = cfg['loop']
+            # truncate = cfg.get('truncate', None)  # equivalent to below
+            truncate = None
+
+        if 'truncate' in cfg:
+            truncate = cfg['truncate']
 
         # Convert sample.
 
