@@ -260,9 +260,12 @@ def pushd(new_dir: Union[Path, str]):
 
 
 loop_regex = re.compile(
-    r'^Position of the loop within the BRR sample : \d+ samples = (\d+) BRR blocks',
+    r'^Position of the loop within the BRR sample : \d+ samples = (\d+) BRR blocks\.',
     re.MULTILINE)
-reciprocal_ratio_regex = re.compile(r'Resampling by effective ratio of (\d+)', re.MULTILINE)
+reciprocal_ratio_regex = re.compile(
+    r'Resampling by effective ratio of ([\d.]+)\.\.\.', re.MULTILINE)
+# Do not remove the trailing ellipses. That will hide bugs where the resampling
+# ratio is not extracted correctly (eg. truncated at the decimal point).
 
 
 def search(regex, s):
@@ -326,6 +329,7 @@ class Converter:
         opt = self.opt
 
         # TODO: -a attenuation?
+        # TODO: why does -g reduce volume?
         args = ['-g', self.wavname, self.brrname]
 
         is_loop = (loop is not None)
