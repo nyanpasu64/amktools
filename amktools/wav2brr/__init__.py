@@ -198,17 +198,17 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
             sample.pitch_correction = 0
 
         # Loop sample.
+        # this is fucking fizzbuzz
+        if {'loop', 'truncate'} & cfg.keys():
+            loop = truncate = None      # type: Optional[int]
+            if 'loop' in cfg:
+                loop = cfg['loop']
+            if 'truncate' in cfg:
+                truncate = cfg['truncate']
+        else:
+            loop = sample.start_loop
+            truncate = sample.end_loop
 
-        loop = sample.start_loop    # type: Optional[int]
-        truncate = sample.end_loop  # type: Optional[int]
-
-        if 'loop' in cfg:
-            loop = cfg['loop']
-            # truncate = cfg.get('truncate', None)  # equivalent to below
-            truncate = None
-
-        if 'truncate' in cfg:
-            truncate = cfg['truncate']
 
         # Convert sample.
 
