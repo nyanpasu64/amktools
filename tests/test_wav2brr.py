@@ -7,7 +7,6 @@ import pytest
 from click.testing import CliRunner
 
 from amktools import wav2brr
-from amktools.wav2brr import pushd, BACKUP_ROOT
 
 WAV = 'lol wav'
 AMK = '../lol addmusic'
@@ -16,8 +15,12 @@ SAMPLE = 'lol sample'
 AMK_SAMPLES = Path(AMK, 'samples')
 PROJECT = 'project'
 
+
 @pytest.fixture(scope='function')
-def cli_runner_tree():
+def filesystem_tree():
+    """ Creates an isolated filesystem tree, with proper directory structure.
+    isolated_filesystem is an effectively static method, so yielding `runner`
+    is unnecessary! """
     runner = CliRunner()
     with runner.isolated_filesystem():
         mkdir(PROJECT)
@@ -29,11 +32,7 @@ def cli_runner_tree():
         #     mkdir('samples')
         AMK_SAMPLES.mkdir()
 
-        yield runner
-
-
-# def touch(path: Union[str, Path]):
-#     open(str(path), 'a').close()
+        yield
 
 
 def test_pushd():
@@ -44,11 +43,11 @@ def test_pushd():
         root = Path().resolve()
         mkdir(SUB)
 
-        with pushd(SUB):
+        with wav2brr.pushd(SUB):
             sub = Path().resolve()
             assert root / SUB == sub
 
-        with pushd(Path(SUB)):
+        with wav2brr.pushd(Path(SUB)):
             sub = Path().resolve()
             assert root / SUB == sub
 
@@ -56,7 +55,7 @@ def test_pushd():
 @contextmanager
 def is_moved(dir: Path, name, method: str, is_moved: bool) -> None:
     before = dir / name
-    after = dir / BACKUP_ROOT / name
+    after = dir / wav2brr.BACKUP_ROOT / name
 
     getattr(before, method)(exist_ok=True)
     yield
@@ -65,9 +64,8 @@ def is_moved(dir: Path, name, method: str, is_moved: bool) -> None:
     assert before.exists() != is_moved
 
 
-
-def test_sample_dir(cli_runner_tree):
-    runner = cli_runner_tree
+def test_sample_dir(filesystem_tree):
+    runner = CliRunner()
 
     # Valid sample path
     result = runner.invoke(wav2brr.main, [WAV, AMK, SAMPLE], catch_exceptions=False)
@@ -76,7 +74,7 @@ def test_sample_dir(cli_runner_tree):
     assert Path(AMK, 'samples', SAMPLE).exists()
 
     # Ensure existing files are backed up, not deleted
-    assert '/' not in BACKUP_ROOT
+    assert '/' not in wav2brr.BACKUP_ROOT
     sample_dir = AMK_SAMPLES / SAMPLE
 
     for i in range(2):  # Ensure backups are overwritten without errors
