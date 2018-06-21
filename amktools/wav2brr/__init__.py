@@ -6,12 +6,12 @@ import re
 import shutil
 import sys
 import wave
-from typing import NamedTuple, Union
 from contextlib import contextmanager
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
 from typing import List, Dict, IO, Optional
+from typing import NamedTuple, Union
 
 import click
 from ruamel.yaml import YAML
@@ -38,6 +38,19 @@ yaml = YAML(typ='safe')
 logging.root.setLevel(logging.ERROR)  # to silence overly pedantic SF2File
 
 
+def rm_recursive(path: Path, optional=False):
+    try:
+        path.rmdir()
+        pass    # branch coverage: this is a directory
+    except NotADirectoryError:
+        path.unlink()
+        pass  # branch coverage: this is a file
+    except FileNotFoundError:
+        if not optional:
+            raise
+
+# Begin command-line parsing
+
 class CliOptions(NamedTuple('CliOptions', (
     ('verbose', int),
     ('sample_folder', Path),
@@ -60,6 +73,10 @@ def ensure_positive(_ctx, param, value):
 
 def pathify(_ctx, _param, value):
     return Path(value)
+
+
+# We move all files under AMK/samples/ to this subfolder.
+BACKUP_ROOT = 'wav2brr backups'
 
 
 # TODO docs
@@ -100,8 +117,18 @@ def main(wav_folder: Path, amk_folder: Path, sample_subfolder: Path,
     # Clear old samples
 
     with pushd(sample_folder):
-        for wat in glob.glob('*'):
-            os.remove(wat)
+        # BRR_BACKUP
+        backup_root = Path(BACKUP_ROOT)
+        backup_root.mkdir(exist_ok=True)
+
+        # file.brr or BRR_BACKUP
+        for old in Path().glob('*'):
+            if old.is_file():   # old != backup_root:
+                # remove BRR_BACKUP/file.brr
+                backup_dest = backup_root / old
+
+                rm_recursive(backup_dest, optional=True)
+                old.rename(backup_dest)
 
     # Create new samples
 
