@@ -104,13 +104,16 @@ def main(wav_folder: Path, amk_folder: Path, sample_subfolder: Path,
 
     if sample_root not in sample_folder.parents:
         raise click.BadParameter('Sample folder "{}" is not within "{}"\n\n'.format(sample_subfolder, sample_root) +
-                                 'If you use samples/ without a subfolder, entire folder will be cleared!\n')
+                                 'If you use samples/ without a subfolder, all files will be cleared!\n')
 
     if not sample_folder.exists():
         print('Creating sample folder', sample_folder)
         os.mkdir(str(sample_folder))
 
     # Begin wav2brr setup
+
+    if decode_loops is None:
+        decode_loops = 1
 
     opt = CliOptions(
         verbose=verbose,
@@ -164,8 +167,11 @@ def main(wav_folder: Path, amk_folder: Path, sample_subfolder: Path,
 # **** .cfg file parsing ****
 
 def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sample]'):
-    cfg_prefix = cfg_path[:cfg_path.rfind('.')]   # folder/cfg
-    cfg_fname = cfg_prefix[cfg_prefix.rfind('/') + 1:]   # cfg
+    """
+    :return: (Path to BRR file, tuning string)
+    """
+    cfg_prefix = os.path.splitext(cfg_path)[0]      # folder/cfg
+    cfg_fname = os.path.basename(cfg_prefix)        # cfg
 
     if opt.verbose: print('~~~~~', cfg_prefix, '~~~~')
 
@@ -265,13 +271,23 @@ def search(regex, s):
 
 WAV_EXT = '.wav'
 BRR_EXT = '.brr'
+
+# TODO: "name" actually means "file path minus extension".
 class Converter:
-    def __init__(self, opt: CliOptions, name, wav='.', brr='.', transpose=0):
+    def __init__(self, opt: CliOptions, name, transpose=0):
+        """
+        :param opt: Command-line options (including .brr output paths),
+            shared across samples.
+        :param name: Path to .wav file, without file extension.
+        :param wav: TODO remove
+        :param brr: TODO remove
+        :param transpose: Semitones to transpose (can be float)
+        """
         self.opt = opt
 
         self.name = name
-        self.wavname = wav + '/' + name + WAV_EXT
-        self.brrname = brr + '/' + name + BRR_EXT
+        self.wavname = name + WAV_EXT
+        self.brrname = name + BRR_EXT
         self.transpose = transpose
 
         w = wave.open(self.wavname)
@@ -372,4 +388,6 @@ class Converter:
             args[:0] = ['-l{}'.format(loop_idx), '-n{}'.format(opt.decode_loops)]
         decode_output = brr_decoder[args]()
         if opt.verbose:
+            # print(brr_decoder[args]) is hard to read since it uses full EXE path
+            print('brr_decoder', ' '.join(args))
             print(decode_output.replace('\r', ''))
