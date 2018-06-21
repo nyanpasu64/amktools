@@ -24,11 +24,15 @@ from amktools.wav2brr.tuning import note2ratio
 from amktools.wav2brr.util import AttrDict, WavSample, ISample
 
 
-def path_append(*it):
+def path_append(*it: Union[Path, str]):
     for el in it:
-        os.environ['PATH'] += os.pathsep + el
+        os.environ['PATH'] += os.pathsep + str(el)
 
-path_append(os.curdir, r'C:\Program Files (x86)\sox-14-4-2')
+path_append(
+    os.curdir,
+    r'C:\Program Files (x86)\sox-14-4-2',
+    r'C:\Program Files\sox-14-4-2',
+    Path(__file__).parent / 'exe')
 
 # noinspection PyUnresolvedReferences
 from plumbum.cmd import sox, brr_encoder, brr_decoder, cmd as _cmd
