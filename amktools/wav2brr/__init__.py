@@ -64,12 +64,11 @@ def rm_recursive(path: Path, optional=False):
 
 # Begin command-line parsing
 
-class CliOptions(NamedTuple('CliOptions', (
+CliOptions = NamedTuple('CliOptions', (
     ('verbose', int),
     ('sample_folder', Path),
     ('decode_loops', int)
-))):
-    nowrap = True
+))
 
 
 Folder = click.Path(exists=True, file_okay=False)
@@ -252,12 +251,13 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
 # **** WAV to BRR conversion ****
 
 
-def round_frac(frac):
-    # TODO remove this function
-    try:
-        return round(Decimal(frac.numerator) / Decimal(frac.denominator), 20)
-    except AttributeError:
-        return frac
+def decimal_repr(num):
+    # ugly, unnecessary, but it works.
+
+    if isinstance(num, Fraction):
+        num = round(Decimal(num.numerator) / Decimal(num.denominator), 20)
+
+    return str(num)
 
 
 @contextmanager
@@ -284,6 +284,8 @@ def search(regex, s):
 WAV_EXT = '.wav'
 BRR_EXT = '.brr'
 
+NOWRAP = True
+
 # TODO: "name" actually means "file path minus extension".
 class Converter:
     def __init__(self, opt: CliOptions, name, transpose=0):
@@ -291,8 +293,6 @@ class Converter:
         :param opt: Command-line options (including .brr output paths),
             shared across samples.
         :param name: Path to .wav file, without file extension.
-        :param wav: TODO remove
-        :param brr: TODO remove
         :param transpose: Semitones to transpose (can be float)
         """
         self.opt = opt
@@ -341,23 +341,26 @@ class Converter:
         # TODO: why does -g reduce volume?
         args = ['-g', self.wavname, self.brrname]
 
-        is_loop = (loop is not None)
-
-        if is_loop:
-            args[0:0] = ['-l' + str(loop)]
-
-        # Even if ratio=1, encoder may resample slightly, to ensure loop is
-        # multiple of 16. So enable bandlimited sinc to preserve high frequencies.
-        # NOTE: Default linear interpolation is simple, but is garbage at
-        # preserving high frequencies.
-        args[0:0] = ['-rb' + str(round_frac(1 / ratio))]
-
-        if opt.nowrap:
+        if NOWRAP:  # always true
             args[0:0] = ['-w']
 
-        if truncate:
+        # Loop and truncate
+        is_loop = (loop is not None)
+        if is_loop:
+            args[0:0] = ['-l' + str(loop)]
+        if truncate is not None:
             args[0:0] = ['-t' + str(truncate)]
 
+        # Resample
+        """
+        Even if ratio=1, encoder may resample slightly, to ensure loop is
+        multiple of 16. So enable bandlimited sinc to preserve high frequencies.
+        NOTE: Default linear interpolation is simple, but is garbage at
+        preserving high frequencies.
+        """
+        args[0:0] = ['-rb' + decimal_repr(1 / ratio)]
+
+        # **** Call brr_encoder ****
         output = brr_encoder[args]().replace('\r', '')
 
         if opt.verbose:
@@ -367,7 +370,7 @@ class Converter:
         if str(output).find('Caution : Wrapping was used.') != -1:
             if not opt.verbose: print(output)
             # If NOWRAP is True, this should never happen.
-            assert not opt.nowrap
+            assert not NOWRAP
             raise Exception('Wrapping detected!!')
 
         if is_loop:
@@ -395,7 +398,7 @@ class Converter:
         opt = self.opt
 
         rate = self.get_rate() * ratio * note2ratio(self.transpose)
-        args = ['-g', '-s' + str(round_frac(rate)), self.brrname,
+        args = ['-g', '-s' + decimal_repr(rate), self.brrname,
                 self.name + ' decoded.wav']
         if loop_idx is not None:
             args[:0] = ['-l{}'.format(loop_idx), '-n{}'.format(opt.decode_loops)]
