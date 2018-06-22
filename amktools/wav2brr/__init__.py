@@ -29,16 +29,23 @@ def path_prepend(*paths: Union[Path, str]):
     prefixes.append(os.environ['PATH'])
     os.environ['PATH'] = os.pathsep.join(prefixes)
 
+
+if getattr(sys, 'frozen', False):
+    app_path = Path(sys._MEIPASS)       # PyInstaller
+else:
+    app_path = Path(__file__).parent    # python -m
+
 path_prepend(
     # os.getcwd() removed, since my bundled version of brr_encoder fixes wrapping
     # and we don't want to call old versions ever.
     r'C:\Program Files (x86)\sox-14-4-2',
     r'C:\Program Files\sox-14-4-2',
-    Path(__file__).parent / 'exe')
+    app_path / 'exe')
 
-# noinspection PyUnresolvedReferences
-from plumbum.cmd import sox, brr_encoder, brr_decoder
-
+from plumbum import local
+sox = local['sox']
+brr_encoder = local['brr_encoder']
+brr_decoder = local['brr_decoder']
 
 yaml = YAML(typ='safe')
 logging.root.setLevel(logging.ERROR)  # to silence overly pedantic SF2File
