@@ -35,15 +35,12 @@ if getattr(sys, 'frozen', False):
 else:
     app_path = Path(__file__).parent    # python -m
 
-path_prepend(
-    # os.getcwd() removed, since my bundled version of brr_encoder fixes wrapping
-    # and we don't want to call old versions ever.
-    r'C:\Program Files (x86)\sox-14-4-2',
-    r'C:\Program Files\sox-14-4-2',
-    app_path / 'exe')
+path_prepend(app_path / 'exe')
+# os.getcwd() removed, since my bundled version of brr_encoder fixes wrapping
+# and we don't want to call old versions ever.
+
 
 from plumbum import local
-sox = local['sox']
 brr_encoder = local['brr_encoder']
 brr_decoder = local['brr_decoder']
 
@@ -229,11 +226,8 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
         conv = Converter(opt, cfg_prefix, transpose=transpose)
         sample.sample_rate = conv.rate
 
-        if volume != 1:
-            conv.attenuate(volume)
-
         ratio = Fraction(ratio)
-        ratio = conv.convert(ratio=ratio, loop=loop, truncate=truncate, decode=True)
+        ratio = conv.convert(ratio=ratio, loop=loop, truncate=truncate, volume=volume, decode=True)
         shutil.copy(conv.brrname, opt.sample_folder)
 
         tune = tuning.brr_tune(sample, ratio)[1]
@@ -313,32 +307,19 @@ class Converter:
     def get_rate(self):
         return self.rate
 
-    def attenuate(self, volume: Fraction):
-        # TODO: eliminate dependency on sox, using -a flag
-        opt = self.opt
-
-        quiet_name = self.wavname + ' attenuate.wav'
-
-        args = ['-v', str(round_frac(volume)), self.wavname, quiet_name]
-        if opt.verbose: print('sox', ' '.join(args))
-        sox[args]()
-
-        self.wavname = quiet_name
-
-    def convert(self, ratio: Fraction, loop: Optional[int], truncate: Optional[int] = None,
-                decode: bool = False) -> Fraction:
+    def convert(self, ratio: Fraction, loop: Optional[int], truncate: Optional[int],
+                volume: Fraction, decode: bool) -> Fraction:
         """
         Convert self.wavname to self.brrname, resampling by ratio.
         :param ratio: Resampling ratio.
         :param loop: Loop begin point.
         :param truncate: End of sample (loop end point).
+        :param volume: Volume to multiply sample by.
         :param decode: Whether to decode sample back to wav.
         :return: Effective resampling ratio
         """
         opt = self.opt
 
-        # TODO: -a attenuation?
-        # TODO: why does -g reduce volume?
         args = ['-g', self.wavname, self.brrname]
 
         if NOWRAP:  # always true
@@ -359,6 +340,10 @@ class Converter:
         preserving high frequencies.
         """
         args[0:0] = ['-rb' + decimal_repr(1 / ratio)]
+
+        # Attenuate volume
+        if volume != 1:
+            args[:0] = ['-a' + decimal_repr(volume)]
 
         # **** Call brr_encoder ****
         output = brr_encoder[args]().replace('\r', '')
