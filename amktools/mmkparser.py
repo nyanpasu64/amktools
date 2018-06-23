@@ -202,6 +202,8 @@ class MMKParser:
 
     TERMINATORS_REGEX = any_of(TERMINATORS)  # 0-character match
 
+    # TODO: get_words(n:int) -> List[str]
+
     def get_word(self) -> Tuple[str, str]:
         """ Gets single word from file. If word begins with %, replaces with definition (used for parameters).
         Removes all leading spaces, but only trailing spaces up to the first \n.
@@ -705,34 +707,34 @@ def remove_ext(path):
 
 
 from amktools.common import TUNING_PATH
-SUFFIX = '.out.txt'
+SUFFIX = '.txt'
 
 
 ERR = 1
 
-def main():
+def main(args: List[str]) -> int:
     parser = argparse.ArgumentParser(
         formatter_class=argparse.RawDescriptionHelpFormatter,
         argument_default=argparse.SUPPRESS,
         description='Parse one or more MMK files to a single AddmusicK source file.',
         epilog='''Examples:
-`mmk_parser infile.txt`                 outputs to infile.out.txt
-`mmk_parser infile.txt infile2.txt`     outputs to infile.out.txt
-`mmk_parser infile.txt -o outfile.txt`  outputs to outfile.txt''')
+`mmk_parser file.mmk`                   outputs to file.txt
+`mmk_parser file.mmk infile2.mmk`       outputs to file.txt
+`mmk_parser file.mmk -o outfile.txt`    outputs to outfile.txt''')
 
     parser.add_argument('files', help='Input files, will be concatenated', nargs='+')
     parser.add_argument('-t', '--tuning',
                         help='Tuning file produced by convert_brr (defaults to {})'.format(TUNING_PATH))
     parser.add_argument('-o', '--outpath', help='Output path (if omitted)')
-    args = parser.parse_args()
+    args = parser.parse_args(args)
 
     # FILES
     inpaths = args.files
     first_path = inpaths[0]
 
     datas = []
-    for inpath in inpaths:
-        with open(inpath) as ifile:
+    for _inpath in inpaths:
+        with open(_inpath) as ifile:
             datas.append(ifile.read())
     datas.append('\n')
     in_str = '\n'.join(datas)
@@ -745,19 +747,24 @@ def main():
     try:
         with open(tuning_path) as f:
             tuning = yaml.load(f)
-            if type(tuning) != dict:
-                perr('invalid tuning file {}, must be YAML key-value map'.format(tuning_path))
-                raise MMKError
+        if type(tuning) != dict:
+            perr('invalid tuning file {}, must be YAML key-value map'.format(tuning_path))
+            return ERR
     except FileNotFoundError:
         tuning = None
-    except MMKError:
-        exit(ERR)
 
     # OUT PATH
     if 'outpath' in args:
         outpath = args.outpath
     else:
         outpath = remove_ext(first_path) + SUFFIX
+
+    for _inpath in inpaths:
+        if Path(outpath).resolve() == Path(_inpath).resolve():
+            perr('Error: Output file {} will overwrite an input file!'.format(outpath))
+            if '.txt' in _inpath.lower():
+                perr('Try renaming input files to .mmk')
+            return ERR
 
     # PARSE
     parser = MMKParser(in_str, tuning)
@@ -766,15 +773,16 @@ def main():
     except MMKError as e:
         if str(e):
             perr('Error:', str(e))
-        exit(ERR)
+        return ERR
     if outstr is None:
-        exit(ERR)
+        return ERR
 
     with open(outpath, 'w') as ofile:
         ofile.write(outstr)
 
-    # subprocess.call('build.cmd')
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    ret = main(sys.argv[1:])
+    exit(ret)

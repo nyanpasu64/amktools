@@ -1,11 +1,13 @@
 import io
+from pathlib import Path
 from unittest import mock
 
 import pytest
+from click.testing import CliRunner
+from pytest_mock import mocker
 from ruamel.yaml import YAML
 
 from amktools import mmkparser
-from amktools.mmkparser import MMKError, any_of, none_of
 
 
 # Util testing
@@ -14,12 +16,12 @@ from amktools.mmkparser import MMKError, any_of, none_of
 def test_regex():
     string = 'a' * 16 + 'cb'
 
-    bc = any_of('bc')
+    bc = mmkparser.any_of('bc')
     match = bc.search(string)
     assert match
     assert match.start() == match.end() == 16
 
-    na = none_of('a')
+    na = mmkparser.none_of('a')
     match = na.search(string)
     assert match
     assert match.start() == match.end() == 16
@@ -31,6 +33,48 @@ tuning = yaml.load(r'test.brr: $F0 $0F')
 
 
 # Functionality
+
+
+def test_constants() -> None:
+    assert mmkparser.ERR != 0
+
+
+def call_mmkparser(filename: Path, expected_ret: int) -> None:
+    filename.touch()
+    ret = mmkparser.main([str(filename)])
+    assert ret == expected_ret
+
+
+txt = Path('file.txt')
+mmk = Path('file.mmk')
+parse_output = 'parse_output'
+
+
+def test_overwrite_txt(mocker) -> None:
+    """ Ensures that mmkparser returns an error, instead of overwriting
+    foo.txt supplied as input. """
+
+    mocker.patch.object(mmkparser.MMKParser, 'parse')
+    mmkparser.MMKParser.parse.return_value = parse_output
+
+    with CliRunner().isolated_filesystem():
+        call_mmkparser(txt, mmkparser.ERR)
+
+
+def test_extension(mocker) -> None:
+    """ Ensures that mmkparser parses foo.mmk to foo.txt."""
+
+    mocker.patch.object(mmkparser.MMKParser, 'parse')
+    mmkparser.MMKParser.parse.return_value = parse_output
+
+    with CliRunner().isolated_filesystem():
+        for i in range(2):
+            # We should overwrite output txt files without issues.
+            call_mmkparser(mmk, 0)
+            assert txt.exists()
+            with txt.open() as f:
+                assert f.read() == parse_output
+
 
 def test_instruments():
     in_str = '''#instruments
@@ -78,7 +122,7 @@ def test_error():
     in_str = '%asdfasdf ; ; ; ; ; ; ; ; ;'
     with mock.patch('sys.stderr', new=io.StringIO()) as fake:  # type: io.StringIO
         p = mmkparser.MMKParser(in_str, None)
-        with pytest.raises(MMKError):
+        with pytest.raises(mmkparser.MMKError):
             p.parse()
 
     val = fake.getvalue()  # type: str
@@ -89,7 +133,7 @@ def test_error_at_eof():
     in_str = '%asdfasdf'
     with mock.patch('sys.stderr', new=io.StringIO()) as fake:  # type: io.StringIO
         p = mmkparser.MMKParser(in_str, None)
-        with pytest.raises(MMKError):
+        with pytest.raises(mmkparser.MMKError):
             p.parse()
 
     val = fake.getvalue()  # type: str
