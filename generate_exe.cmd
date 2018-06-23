@@ -1,8 +1,13 @@
 @echo off
-rem pyinstaller -y amktools\mmkparser.py
-pyinstaller -y mmkparser.spec
-dist\mmkparser\mmkparser.exe
+rmdir /s /q dist\amktools
+mkdir dist\amktools
 
-rem pyinstaller -y amktools\wav2brr\__main__.py -n wav2brr
+rem TODO rewrite in bash or powershell or python
+
+pyinstaller -y mmkparser.spec
+xcopy /y /s /e dist\mmkparser dist\amktools\
+dist\amktools\mmkparser.exe
+
 pyinstaller -y wav2brr.spec
-dist\wav2brr\wav2brr.exe
+xcopy /y /s /e dist\wav2brr dist\amktools\
+dist\amktools\wav2brr.exe
