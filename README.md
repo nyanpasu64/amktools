@@ -1,4 +1,4 @@
-# amktools: Automated .brr sample creator and tuner, and .txt command parser
+# amktools: Python tools to powerup AddmusicK
 
 ## Installation
 
@@ -12,7 +12,7 @@ To install from source:
 
 There are no external dependencies (brr_encoder/brr_decoder is bundled, and sox is no longer needed).
 
-## wav2brr: AMK WAV to BRR converter
+## wav2brr: Automated WAV to BRR converter and tuner
 
 wav2brr is an automated .brr sample creator, which uses .cfg files to convert, resample, loop, and tune .wav samples.
 
@@ -27,9 +27,9 @@ Currently, all `--options` are undocumented and missing from `--help`, and the C
 
 ### wav2brr Tutorial
 
-See <docs/wav2brr.md>.
+See [docs/wav2brr.md](docs/wav2brr.md)
 
-## mmkparser: TXT tuning import and meta-command parser (mmkparser) mmkparser Usage
+## mmkparser: TXT tuning import and meta-command parser
 
 mmkparser parses .mmk files. They act like .txt files, except they can reference wav2brr tuning data. MMK files also have human-readable high-level commands to replace raw hex commands.
 
@@ -42,7 +42,7 @@ Examples:
 
 ### mmkparser Tutorial
 
-See <docs/mmkparser.md>.
+See [docs/mmkparser.md](docs/mmkparser.md).
 
 ## .gitignore
 
