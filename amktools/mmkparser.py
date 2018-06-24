@@ -185,7 +185,7 @@ class MMKParser:
     def get_chars(self, num) -> str:
         """ Gets the specified number of characters.
         :param num: Number of characters to skip.
-        :return: None
+        :return: String of characters
         """
         new = min(self.pos + num, self.size())
         skipped = self.in_str[self.pos:new]
@@ -487,7 +487,7 @@ class MMKParser:
     # PANSCALE: Fraction (5/64)
     # ISVOL, ISPAN: bool
 
-    def parse(self):
+    def parse(self) -> str:
         # For exception debug
         try:
             # Remove the header. TODO increment pos instead.
@@ -773,8 +773,6 @@ def main(args: List[str]) -> int:
     except MMKError as e:
         if str(e):
             perr('Error:', str(e))
-        return ERR
-    if outstr is None:
         return ERR
 
     with open(outpath, 'w') as ofile:
