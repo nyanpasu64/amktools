@@ -291,6 +291,19 @@ class MMKParser:
             return True
         return False
 
+    # **** Transpose ****
+
+    def parse_transpose(self) -> None:
+        transpose_str, whitespace = self.get_words(1)
+        transpose = parse_int_hex(transpose_str)
+
+        if transpose not in range(-0x80, 0x80):
+            raise MMKError('invalid transpose {}'.format(transpose_str))
+
+        transpose_hex = int2hex(transpose & 0xff)
+        self.put('$FA $02 {}'.format(transpose_hex))
+        self.put(whitespace)
+
     # **** volume ****
 
     def calc_vol(self, in_vol):
@@ -516,6 +529,9 @@ class MMKParser:
                 self._begin_pos = self.pos
                 char = self.peek()
 
+                # TODO refactor to elif (so you can't forget continue)
+                # and make functions get their own args.
+
                 # Parse the no-argument default commands.
                 if char == 'v':
                     self.parse_vol()
@@ -534,10 +550,6 @@ class MMKParser:
                     self.skip_spaces(True)
                     self.parse_instruments()
                     continue
-                #
-                # if char == '"':
-                #     self.skip_until('"')
-                #     continue
 
                 # Begin custom commands.
                 if char == '%':
@@ -582,6 +594,12 @@ class MMKParser:
 
                     if command == 'notpan':
                         self.state['ispan'] = False
+                        continue
+
+                    # N ARGUMENTS
+
+                    if command in ['t', 'transpose']:
+                        self.parse_transpose()
                         continue
 
                     # ONE ARGUMENT
