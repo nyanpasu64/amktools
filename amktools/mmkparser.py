@@ -202,8 +202,6 @@ class MMKParser:
 
     TERMINATORS_REGEX = any_of(TERMINATORS)  # 0-character match
 
-    # TODO: get_words(n:int) -> List[str]
-
     def get_word(self) -> Tuple[str, str]:
         """ Gets single word from file. If word begins with %, replaces with definition (used for parameters).
         Removes all leading spaces, but only trailing spaces up to the first \n.
@@ -221,6 +219,20 @@ class MMKParser:
         if word.startswith('%'):
             word = self.defines.get(word[1:], word)     # dead code?
         return word, whitespace
+
+    def get_words(self, n: int) -> List[str]:
+        """ Gets n words, plus trailing whitespace. """
+        if n <= 0:
+            raise ValueError('invalid n={} < 0'.format(repr(n)))
+
+        words = []
+        whitespace = None
+        for i in range(n):
+            word, whitespace = self.get_word()
+            words.append(word)
+
+        words.append(whitespace)
+        return words
 
 
     def get_spaces(self, exclude='') -> str:
