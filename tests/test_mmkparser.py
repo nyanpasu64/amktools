@@ -106,6 +106,14 @@ $dc $c0 $14\t
 '''
 
 
+def test_terminator():
+    """ Ensures commands (words) can be terminated by ] without whitespace. """
+    in_str = '[%gain direct $03]\n'
+    p = mmkparser.MMKParser(in_str, None)
+    out = p.parse()
+    assert out.lower() == '[$fa $01 $03]\n'
+
+
 # after adding ADSR: `%tune "test.brr" %adsr w x y z`
 # def test_adsr...
 

@@ -70,7 +70,7 @@ def vol_midi2smw(midi_vol):
 
 
 WHITESPACE = ' \t\n\r\x0b\f,:'
-TERMINATORS = WHITESPACE + '"'
+TERMINATORS = WHITESPACE + '"]'
 
 
 def any_of(chars) -> Pattern:
