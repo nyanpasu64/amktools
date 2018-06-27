@@ -300,9 +300,9 @@ class MMKParser:
     def parse_vol_hex(self, arg):
         # This both returns the volume and modifies state.
         # Time to throw away state?
-        new_vol = self.state['vol'] = self.calc_vol(arg)
-        hex_vol = hex(int(new_vol))[2:].zfill(2)
-        return '$' + hex_vol
+        new_vol = self.state['vol'] = self.calc_vol(arg)    # type: str
+        hex_vol = int2hex(new_vol)
+        return hex_vol
 
     def parse_vbend(self, time, vol, whitespace):
         # Takes a fraction of a quarter note as input.
