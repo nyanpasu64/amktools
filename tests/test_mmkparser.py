@@ -114,10 +114,18 @@ def test_instruments_comments():
 '''
 
 
+# TODO parameterize
 def test_commands():
     in_str = ''';
 %vbend,4,255\t
 %ybend 4 20\t
+
+%gain,direct,$73
+%gain,set,$73
+%gain,down,$03
+%gain,exp,$03
+%gain,up,$03
+%gain,bent,$03
 ;
 '''
     p = mmkparser.MMKParser(in_str, tuning)
@@ -125,6 +133,13 @@ def test_commands():
     assert outstr.lower() == ''';
 $e8 $c0 $ff\t
 $dc $c0 $14\t
+
+$fa $01 $73
+$fa $01 $73
+$fa $01 $83
+$fa $01 $a3
+$fa $01 $c3
+$fa $01 $e3
 ;
 '''
 

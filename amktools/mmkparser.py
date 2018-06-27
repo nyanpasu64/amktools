@@ -401,7 +401,7 @@ class MMKParser:
 
     _GAINS = [
         # curve, begin, max_rate
-        ['direct', 0x00],
+        ['direct', 'set', 0x00],
         ['down', 0x80],
         ['exp', 0xa0],
         ['up', 0xc0],
@@ -410,7 +410,7 @@ class MMKParser:
     ]
 
     for i in range(len(_GAINS) - 1):
-        _GAINS[i].append(_GAINS[i + 1][1] - _GAINS[i][1])
+        _GAINS[i].append(_GAINS[i + 1][-1] - _GAINS[i][-1])
     _GAINS = _GAINS[:-1]
 
     def parse_gain(self, curve, rate, whitespace, *, instr):
@@ -424,8 +424,8 @@ class MMKParser:
 
         raw_rate = rate
         rate = parse_int_hex(rate)
-        for curve_, begin, max_rate in self._GAINS:
-            if curve_ == curve:
+        for *curves, begin, max_rate in self._GAINS:
+            if curve in curves:
                 if rate not in range(max_rate):
                     perr('Invalid rate %s for curve %s (rate < %s)' %
                          (raw_rate, curve, hex(max_rate)))
