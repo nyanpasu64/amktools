@@ -272,10 +272,10 @@ class MMKParser:
             self.seg_text[self.currseg] = [pstr]
 
     # Begin parsing functions!
-    def parse_define(self, command_case, trailing):
+    def parse_define(self, command_case, whitespace):
         """ TODO Parse literal define, passthrough. """
         if command_case in self.defines:
-            self.put(self.defines[command_case] + trailing)
+            self.put(self.defines[command_case] + whitespace)
             return True
         return False
 
@@ -532,11 +532,11 @@ class MMKParser:
                     self.skip_chars(1, keep=False)
 
                     # NO ARGUMENTS
-                    command_case, trailing = self.get_word()
+                    command_case, whitespace = self.get_word()
                     command = command_case.lower()
                     self._command = command
 
-                    if self.parse_define(command_case, trailing):
+                    if self.parse_define(command_case, whitespace):
                         continue
 
                     if command == 'mmk0.1':
@@ -573,47 +573,47 @@ class MMKParser:
                         continue
 
                     # ONE ARGUMENT
-                    arg, trailing = self.get_word()
+                    arg, whitespace = self.get_word()
 
                     if command == 'vmod':
                         self.state['vmod'] = parse_frac(arg)
                         continue
 
                     # 2 ARGUMENTS
-                    arg2, trailing = self.get_word()
+                    arg2, whitespace = self.get_word()
                     if command in ['vbend', 'vb']:
-                        self.parse_vbend(arg, arg2, trailing)
+                        self.parse_vbend(arg, arg2, whitespace)
                         continue
 
                     if command in ['ybend', 'yb']:
                         self.parse_ybend(duration=arg, pan=arg2)
-                        self.put(trailing)
+                        self.put(whitespace)
                         continue
 
                     if command == 'gain':
-                        self.parse_gain(arg, arg2, trailing, instr=False)
+                        self.parse_gain(arg, arg2, whitespace, instr=False)
                         continue
 
                     # 3 ARGUMENTS
-                    arg3, trailing = self.get_word()
+                    arg3, whitespace = self.get_word()
 
                     if command == 'vib':
-                        self.parse_vib(arg, arg2, arg3, trailing)
+                        self.parse_vib(arg, arg2, arg3, whitespace)
                         continue
 
                     if command == 'trem':
-                        self.parse_trem(arg, arg2, arg3, trailing)
+                        self.parse_trem(arg, arg2, arg3, whitespace)
                         continue
 
                     if command in ['pbend', 'pb']:
-                        self.parse_pbend(arg, arg2, arg3, trailing)
+                        self.parse_pbend(arg, arg2, arg3, whitespace)
                         continue
 
                     # 4 ARGUMENTS
-                    arg4, trailing = self.get_word()
+                    arg4, whitespace = self.get_word()
                     if command == 'adsr':
                         self.parse_adsr(arg, arg2, arg3, arg4, instr=False)
-                        self.put(trailing)
+                        self.put(whitespace)
                         continue
 
                     # INVALID COMMAND
@@ -669,12 +669,12 @@ class MMKParser:
             if char == '%':
                 self.skip_chars(1, False)
 
-                command_case, trailing = self.get_word()
+                command_case, whitespace = self.get_word()
                 command = command_case.lower()
                 self._command = command
 
                 # **** Parse defines ****
-                if self.parse_define(command_case, trailing):
+                if self.parse_define(command_case, whitespace):
                     continue
 
                 # **** Parse commands ****
@@ -682,17 +682,17 @@ class MMKParser:
                     self.parse_tune()
                     continue
 
-                arg, trailing = self.get_word()
-                arg2, trailing = self.get_word()
+                arg, whitespace = self.get_word()
+                arg2, whitespace = self.get_word()
                 if command == 'gain':
-                    self.parse_gain(arg, arg2, trailing, instr=True)
+                    self.parse_gain(arg, arg2, whitespace, instr=True)
                     continue
 
-                arg3, trailing = self.get_word()
-                arg4, trailing = self.get_word()
+                arg3, whitespace = self.get_word()
+                arg4, whitespace = self.get_word()
                 if command == 'adsr':
                     self.parse_adsr(arg, arg2, arg3, arg4, instr=True)
-                    self.put(trailing)
+                    self.put(whitespace)
                     continue
 
                 raise MMKError('Invalid command ' + command)
