@@ -50,7 +50,7 @@ mmk = Path('file.mmk')
 parse_output = 'parse_output'
 
 
-def test_overwrite_txt(mocker) -> None:
+def test_dont_overwrite_txt(mocker) -> None:
     """ Ensures that mmkparser returns an error, instead of overwriting
     foo.txt supplied as input. """
 
@@ -95,7 +95,7 @@ def test_instruments():
 '''
 
 
-@pytest.mark.xfail
+@pytest.mark.xfail(strict=True)
 def test_instruments_comments():
     """ %tune needs to stop before reaching comments or something. maybe
     trim off all trailing space and append after tuning bytes?"""
