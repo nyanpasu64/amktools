@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import glob
 import logging
 import os
 import re
@@ -63,7 +62,7 @@ def rm_recursive(path: Path, optional=False):
 
 CliOptions = NamedTuple('CliOptions', (
     ('verbose', int),
-    ('sample_folder', Path),
+    ('sample_folder', str),
     ('decode_loops', int)
 ))
 
@@ -85,7 +84,10 @@ def pathify(_ctx, _param, value):
 
 
 # We move all files under AMK/samples/ to this subfolder.
-BACKUP_ROOT = 'wav2brr backups'
+BACKUP_ROOT = Path('wav2brr backups')
+
+# Copy these BRR files directly to destination subfolder.
+BRR_SOURCE = Path('~brr')
 
 
 # TODO docs
@@ -122,7 +124,7 @@ def main(wav_folder: Path, amk_folder: Path, sample_subfolder: Path,
 
     opt = CliOptions(
         verbose=verbose,
-        sample_folder=sample_folder,
+        sample_folder=str(sample_folder),
         decode_loops=decode_loops)
 
     if sf2_file is not None:
@@ -136,7 +138,7 @@ def main(wav_folder: Path, amk_folder: Path, sample_subfolder: Path,
 
     with pushd(sample_folder):
         # BRR_BACKUP
-        backup_root = Path(BACKUP_ROOT)
+        backup_root = BACKUP_ROOT
         backup_root.mkdir(exist_ok=True)
 
         # file.brr or BRR_BACKUP
@@ -152,18 +154,27 @@ def main(wav_folder: Path, amk_folder: Path, sample_subfolder: Path,
 
     tunings = {}
     with pushd(wav_folder):
-        folders = [f[:-1] for f in glob.glob('*/') if '~' not in f]
-        configs = [f[:f.find('\\')] for f in glob.glob('*/*.cfg*') if '~' not in f]
+        p = Path()
+        folders = sorted(x for x in p.iterdir()
+                         if x.is_dir() and '~' not in x.name)
 
-        # Raise exception if empty folders discovered (FIXME what if 2 configs in 1 folder?)
-        # wait "configs" is a list of folders containing cfg! this code is hot garbage
-        if len(folders) != len(configs):
-            raise Exception(set(folders) - set(configs))
+        for folder in folders:
+            cfgs = sorted(x for x in folder.glob('*.cfg') if '~' not in x.name)
+            if len(cfgs) != 1:
+                fnames = [cfg.name for cfg in cfgs]
+                raise ValueError(
+                    'folder "{}" must contain one .cfg, currently contains {}'
+                        .format(folder, fnames)
+                )
 
-        for cfg_path in sorted(glob.glob(r'*/*.cfg')):  # type: str
-            cfg_path = cfg_path.replace('\\', '/')
+            cfg_path = str(cfgs[0]).replace('\\', '/')
             name, tune = convert_cfg(opt, cfg_path, name2sample)
             tunings[name] = tune
+
+        # Copy over .brr files directly
+        for brr in BRR_SOURCE.glob('*.brr'):
+            shutil.copy(str(brr), opt.sample_folder)
+
 
     with open(common.TUNING_PATH, 'w') as f:
         yaml.dump(tunings, f)

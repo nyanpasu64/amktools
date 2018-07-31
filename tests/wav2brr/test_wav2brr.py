@@ -88,7 +88,7 @@ def test_sample_dir(filesystem_tree):
         # TODO validate contents
 
     # Ensure existing files are backed up, not deleted
-    assert '/' not in wav2brr.BACKUP_ROOT
+    assert '/' not in str(wav2brr.BACKUP_ROOT)
     sample_dir = AMK_SAMPLES / SAMPLE
 
     for i in range(2):  # Ensure backups are overwritten without errors
