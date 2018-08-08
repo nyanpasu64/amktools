@@ -106,10 +106,6 @@ class MMKParser:
         self.state = self.orig_state.copy()
         self.defines = {}  # type: Dict[str, str]
 
-        # unused
-        self.currseg = -1
-        self.seg_text = {}  # type: Dict[int, List['self.SEGMENT']]
-
         self.pos = 0
         self.out = []
 
@@ -271,12 +267,7 @@ class MMKParser:
         return parse_int_round(buffer)
 
     def put(self, pstr):
-        if self.currseg == -1:
-            self.out.append(pstr)
-        elif self.currseg in self.seg_text:
-            self.seg_text[self.currseg].append(pstr)
-        else:
-            self.seg_text[self.currseg] = [pstr]
+        self.out.append(pstr)
 
     # Begin parsing functions!
     def parse_define(self, command_case, whitespace):
