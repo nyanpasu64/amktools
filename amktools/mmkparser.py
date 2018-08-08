@@ -544,10 +544,20 @@ class MMKParser:
                     self.parse_comment()
                     continue
 
-                if char == '{':  # instruments{}
+                if char == '#':  # instruments{}
                     self.skip_chars(1, keep=True)
                     self.skip_spaces(True)
-                    self.parse_instruments()
+
+                    def branch(keyword, method):
+                        if self.in_str.startswith(keyword, self.pos):
+                            self.skip_until('{')
+                            self.skip_chars(1, keep=True)
+                            method()
+
+                    branch('samples', self.parse_instruments)     # FIXME
+                    branch('instruments', self.parse_instruments)
+
+
                     continue
 
                 # Begin custom commands.
