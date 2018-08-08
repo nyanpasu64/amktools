@@ -139,13 +139,12 @@ class MMKParser:
 
     @contextmanager
     def end_at(self, sub):
-        # FIXME use get_until ';\n'
-        end = self.in_str.find(sub, self.pos)
-
         string = self.in_str
         begin = self.pos
 
-        self.in_str = string[begin:end]
+        self.in_str = self.get_until(sub, strict=False)
+
+        end = self.pos
         self.pos = 0
         yield
 
@@ -158,7 +157,7 @@ class MMKParser:
     # **** Parsing ****
     def get_until(self, regex: Union[Pattern, str], strict) -> str:
         """
-        Read until first regex match. Move pos after end of regex.
+        Read until first regex match. Move pos after end of match (before lookahead).
 
         :param regex: Regex pattern terminating region.
         :param inclusive: Whether to return terminating regex in return value.
@@ -396,7 +395,7 @@ class MMKParser:
         tuning = self.tuning[brr]
 
         self.put('"{}"{}'.format(brr, whitespace))
-        with self.end_at('\n'):
+        with self.end_at(any_of(';\n')):
             self.parse_instruments()  # adsr+gain
         self.put(' {}'.format(tuning))
 

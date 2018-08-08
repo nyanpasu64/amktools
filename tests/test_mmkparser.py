@@ -94,21 +94,24 @@ def test_instruments():
 '''
 
 
-@pytest.mark.xfail(strict=True)
 def test_instruments_comments():
     """ %tune needs to stop before reaching comments or something. maybe
     trim off all trailing space and append after tuning bytes?"""
 
-    in_str = '''#instruments
+    in_str = '''\
+#instruments
 {
     %tune "test.brr" $8F $E0 $00    ; foo
 }
 '''
     p = mmkparser.MMKParser(in_str, tuning)
     outstr = p.parse()
-    assert outstr.lower() == '''#instruments
+
+    # Ideally I'd put the spaces *after* the tuning, but that's hard.
+    assert outstr.lower() == '''\
+#instruments
 {
-    "test.brr" $8f $e0 $00 $f0 $0f    ; foo
+    "test.brr" $8f $e0 $00     $f0 $0f; foo
 }
 '''
 
