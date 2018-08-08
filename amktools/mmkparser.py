@@ -433,9 +433,10 @@ class MMKParser:
         _GAINS[i].append(_GAINS[i + 1][-1] - _GAINS[i][-1])
     _GAINS = _GAINS[:-1]
 
-    def parse_gain(self, curve, rate, whitespace, *, instr):
+    def parse_gain(self, *, instr):
         # Look for a matching GAIN value, ensure the input rate lies in-bounds,
         # then write a hex command.
+        curve, rate, whitespace = self.get_words(2)
 
         if instr:
             prefix = '$00 $00'
@@ -459,19 +460,19 @@ class MMKParser:
             perr('%s (rate < %s)' % (curve, hex(max_rate)))
         raise MMKError
 
-    def parse_adsr(self, attack: str, decay: str, sustain: str, release: str, instr: bool):
+    def parse_adsr(self, instr: bool):
         """
         Parse ADSR command.
-        :param attack: Attack speed (0-15)
-        :param decay: Decay speed (0-7)
-        :param sustain: Sustain volume (0-7)
-        :param release: Release speed (0-31)
+        attack: Attack speed (0-15)
+        decay: Decay speed (0-7)
+        sustain: Sustain volume (0-7)
+        release: Release speed (0-31)
+
         :param instr: Whether ADSR command occurs in instrument definition (or MML command)
         """
+        attack, decay, sustain, release, whitespace = self.get_words(4)
         if sustain.startswith('full'):
             sustain = '7'
-        # if release.startswith('inf'):
-        #     release = '0'
 
         attack = parse_int_hex(attack)
         decay = parse_int_hex(decay)
@@ -492,6 +493,7 @@ class MMKParser:
         else:
             fmt = '$ED {} {}'
         self.put(fmt.format(int2hex(a), int2hex(b)))
+        self.put(whitespace)
 
     @staticmethod
     def _index_check(caption, val, end):
@@ -607,6 +609,14 @@ class MMKParser:
                         self.parse_transpose()
                         continue
 
+                    if command == 'adsr':
+                        self.parse_adsr(instr=False)
+                        continue
+
+                    if command == 'gain':
+                        self.parse_gain(instr=False)
+                        continue
+
                     # ONE ARGUMENT
                     arg, whitespace = self.get_word()
 
@@ -625,10 +635,6 @@ class MMKParser:
                         self.put(whitespace)
                         continue
 
-                    if command == 'gain':
-                        self.parse_gain(arg, arg2, whitespace, instr=False)
-                        continue
-
                     # 3 ARGUMENTS
                     arg3, whitespace = self.get_word()
 
@@ -642,13 +648,6 @@ class MMKParser:
 
                     if command in ['pbend', 'pb']:
                         self.parse_pbend(arg, arg2, arg3, whitespace)
-                        continue
-
-                    # 4 ARGUMENTS
-                    arg4, whitespace = self.get_word()
-                    if command == 'adsr':
-                        self.parse_adsr(arg, arg2, arg3, arg4, instr=False)
-                        self.put(whitespace)
                         continue
 
                     # INVALID COMMAND
@@ -717,17 +716,12 @@ class MMKParser:
                     self.parse_tune()
                     continue
 
-                arg, whitespace = self.get_word()
-                arg2, whitespace = self.get_word()
                 if command == 'gain':
-                    self.parse_gain(arg, arg2, whitespace, instr=True)
+                    self.parse_gain(instr=True)
                     continue
 
-                arg3, whitespace = self.get_word()
-                arg4, whitespace = self.get_word()
                 if command == 'adsr':
-                    self.parse_adsr(arg, arg2, arg3, arg4, instr=True)
-                    self.put(whitespace)
+                    self.parse_adsr(instr=True)
                     continue
 
                 raise MMKError('Invalid command ' + command)
