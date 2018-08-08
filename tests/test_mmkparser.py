@@ -4,7 +4,6 @@ from unittest import mock
 
 import pytest
 from click.testing import CliRunner
-from pytest_mock import mocker
 from ruamel.yaml import YAML
 
 from amktools import mmkparser

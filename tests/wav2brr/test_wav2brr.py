@@ -1,9 +1,7 @@
-import itertools
 import tempfile
 from contextlib import contextmanager
 from os import mkdir, chdir as cd
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import click
 import pytest
@@ -23,7 +21,7 @@ PROJECT = 'project'
 @pytest.fixture(scope='function')
 def filesystem_tree():
     """ Creates an isolated filesystem tree, with proper directory structure.
-    isolated_filesystem is an effectively static method, so yielding `runner`
+    isolated_filesystem is effectively a static method, so yielding `runner`
     is unnecessary! """
     runner = CliRunner()
     with runner.isolated_filesystem():
