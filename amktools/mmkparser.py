@@ -26,7 +26,7 @@ class MMKError(ValueError):
 
 
 def perr(*args, **kwargs):
-    print(*args, **kwargs, file=sys.stderr)
+    print(*args, file=sys.stderr, **kwargs)
 
 
 yaml = YAML(typ='safe')
@@ -108,7 +108,7 @@ class MMKParser:
 
         # unused
         self.currseg = -1
-        self.seg_text = {}  # type: Dict[int, List[self.SEGMENT]]
+        self.seg_text = {}  # type: Dict[int, List['self.SEGMENT']]
 
         self.pos = 0
         self.out = []
@@ -160,17 +160,15 @@ class MMKParser:
         Read until first regex match. Move pos after end of match (before lookahead).
 
         :param regex: Regex pattern terminating region.
-        :param inclusive: Whether to return terminating regex in return value.
         :param strict: If true, throws exception on failure. If false, returns in_str[pos:size()].
         :return: Text until regex match (optionally inclusive).
         """
-        inclusive = False
-
         regex = re.compile(regex)
         match = regex.search(self.in_str, self.pos)
+
         if match:
             end = match.end()
-            out_idx = end if inclusive else match.start()
+            out_idx = match.start()
         elif not strict:
             end = self.size()
             out_idx = end
@@ -235,8 +233,6 @@ class MMKParser:
 
 
     def get_spaces(self, exclude='') -> str:
-        skipped = ''
-
         whitespace = set(WHITESPACE) - set(exclude)
         not_whitespace = none_of(whitespace)    # 0-character match
         skipped = self.get_until(not_whitespace, strict=False)
