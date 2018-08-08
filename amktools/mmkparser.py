@@ -537,7 +537,7 @@ class MMKParser:
                     self.skip_chars(1, keep=True)
                     self.skip_spaces(True)
 
-                    def branch(keyword, method):
+                    def branch(keyword: str, method: Callable):
                         if self.in_str.startswith(keyword, self.pos):
                             self.skip_until('{')
                             self.skip_chars(1, keep=True)
