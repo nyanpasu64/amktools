@@ -641,8 +641,16 @@ class MMKParser:
 
     def parse_wave_group(self, is_instruments: bool):
         name, whitespace = self.get_quoted()
+        ntick_playback = None
+
+        if not is_instruments:
+            ntick_playback = self.get_int()     # Only load the first N ticks
+            whitespace = self.get_spaces(exclude='\n')
+            # ntick_playback, whitespace = self.get_word()     # The sweep lasts for N ticks
+            # ntick_playback = int(parse_time(ntick_playback))
+
         meta = self.wavetable[name]
-        waves = self._get_waves_in_group(name)
+        waves = self._get_waves_in_group(name, ntick_playback)
 
         with self.capture() as output, self.until_comment():
             if is_instruments:
@@ -662,7 +670,7 @@ class MMKParser:
 
     _WAVE_GROUP_TEMPLATE = '{}-{:03}.brr'
 
-    def _get_waves_in_group(self, name: str) -> List[str]:
+    def _get_waves_in_group(self, name: str, ntick_playback: int) -> List[str]:
         """ Returns a list of N BRR wave names. """
         # if name in self.wave_groups:
         #     return self.wave_groups[name]
@@ -671,13 +679,18 @@ class MMKParser:
             raise MMKError('cannot load wavetables, missing wavetable.yaml')
 
         meta = self.wavetable[name]
+
+        if ntick_playback is not None:
+            meta.ntick = min(meta.ntick, ntick_playback)
+
         nwave = ceildiv(meta.ntick, meta.wave_sub)
         wave_names = [self._WAVE_GROUP_TEMPLATE.format(name, i) for i in range(nwave)]
         return wave_names
 
     def parse_wave_sweep(self):
         """ Print a wavetable sweep. """
-        name, whitespace = self.get_quoted()
+        name, _ = self.get_quoted()
+        ntick_playback = self.get_int()     # The sweep lasts for N ticks
         meta = self.wavetable[name]
 
         # Ensure wavetable remains at full volume
@@ -693,7 +706,8 @@ class MMKParser:
                 self.put(f'c={tick - prev_tick}')    # TODO pitch
                 prev_tick = tick
 
-        for tick in range(meta.ntick):
+        ntick = min(ntick_playback, meta.ntick)
+        for tick in range(ntick):
             if tick % meta.env_sub == 0:
                 env_idx = tick // meta.env_sub
                 print_note()
@@ -708,7 +722,8 @@ class MMKParser:
                 # Print wave
                 wave = self._WAVE_GROUP_TEMPLATE.format(name, wave_idx)
                 self.put(f'("{wave}", {meta.tuning[:3]})')
-            # Print note
+
+        tick = ntick_playback
         print_note()
 
     # self.state:
