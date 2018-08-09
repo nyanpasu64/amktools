@@ -343,7 +343,7 @@ class MMKParser:
 
         word = self.get_until(self.TERMINATORS_REGEX, strict=False)
         if not word:
-            raise MMKError('Tried to get word where none exists (invalid command or missing arguments?)')
+            raise Exception('Tried to get word where none exists (invalid command or missing arguments?)')
         whitespace = self.get_spaces(exclude='\n')
 
         if word.startswith('%'):
