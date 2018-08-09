@@ -10,15 +10,17 @@ import re
 import sys
 from contextlib import contextmanager
 from fractions import Fraction
+from io import StringIO
 from pathlib import Path
-from typing import Dict, List, Union, Pattern, Tuple
+from typing import Dict, List, Union, Pattern, Tuple, Callable, Optional
 
+from dataclasses import dataclass, field
 from ruamel.yaml import YAML
-
 
 # We cannot identify instrument macros.
 # The only way to fix that would be to expand macros, which would both complicate the program and
 # make the generated source less human-readable.
+from amktools.utils.math import ceildiv
 
 
 class MMKError(ValueError):
@@ -30,6 +32,100 @@ def perr(*args, **kwargs):
 
 
 yaml = YAML(typ='safe')
+
+
+def remove_ext(path):
+    head = os.path.splitext(path)[0]
+    return head
+
+
+from amktools.common import TUNING_PATH, WAVETABLE_PATH
+TXT_SUFFIX = '.txt'
+RETURN_ERR = 1
+
+def main(args: List[str]) -> int:
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        argument_default=argparse.SUPPRESS,
+        description='Parse one or more MMK files to a single AddmusicK source file.',
+        epilog='''Examples:
+`mmk_parser file.mmk`                   outputs to file.txt
+`mmk_parser file.mmk infile2.mmk`       outputs to file.txt
+`mmk_parser file.mmk -o outfile.txt`    outputs to outfile.txt''')
+
+    parser.add_argument('files', help='Input files, will be concatenated', nargs='+')
+    parser.add_argument('-t', '--tuning',
+                        help='Tuning file produced by wav2brr (defaults to {})'.format(TUNING_PATH))
+    parser.add_argument('-w', '--wavetable',
+                        help=f'Wavetable metadata produced by wavetable.to_brr (defaults to {WAVETABLE_PATH})')
+    parser.add_argument('-o', '--outpath', help='Output path (if omitted)')
+    args = parser.parse_args(args)
+
+    # FILES
+    inpaths = args.files
+    first_path = inpaths[0]
+    mmk_dir = Path(first_path).parent
+
+    datas = []
+    for _inpath in inpaths:
+        with open(_inpath) as ifile:
+            datas.append(ifile.read())
+    datas.append('\n')
+    in_str = '\n'.join(datas)
+
+
+    # TUNING
+    if 'tuning' in args:
+        tuning_path = Path(args.tuning)
+    else:
+        tuning_path = mmk_dir / TUNING_PATH
+    try:
+        with open(tuning_path) as f:
+            tuning = yaml.load(f)
+        if type(tuning) != dict:
+            perr('invalid tuning file {}, must be YAML key-value map'.format(
+                tuning_path.resolve()))
+            return RETURN_ERR
+    except FileNotFoundError:
+        tuning = None
+
+    # WAVETABLE
+    wavetable_path = vars(args).get('wavetable',
+                                    mmk_dir / WAVETABLE_PATH)
+    try:
+        wavetable_path = Path(wavetable_path)
+        wavetable = yaml.load(wavetable_path)
+        wavetable = {k: WavetableMetadata(**meta) for k, meta in wavetable.items()}
+            # type: Dict[str, WavetableMetadata]
+    except FileNotFoundError:
+        wavetable = None
+
+    # OUT PATH
+    if 'outpath' in args:
+        outpath = args.outpath
+    else:
+        outpath = remove_ext(first_path) + TXT_SUFFIX
+
+    for _inpath in inpaths:
+        if Path(outpath).resolve() == Path(_inpath).resolve():
+            perr('Error: Output file {} will overwrite an input file!'.format(outpath))
+            if '.txt' in _inpath.lower():
+                perr('Try renaming input files to .mmk')
+            return RETURN_ERR
+
+    # PARSE
+    parser = MMKParser(in_str, tuning, wavetable)
+    try:
+        outstr = parser.parse()
+    except MMKError as e:
+        if str(e):
+            perr('Error:', str(e))
+        return RETURN_ERR
+
+    with open(outpath, 'w') as ofile:
+        ofile.write(outstr)
+
+    return 0
 
 
 def parse_int_round(instr):
@@ -93,21 +189,48 @@ def parse_time(word: str):
     return parse_frac(word) * QUARTER_TO_TICKS
 
 
+@dataclass
+class WavetableMetadata:
+    nsamp: int
+    ntick: int
+    fps: float
+    wave_sub: int   # Each wave is repeated `wave_sub` times.
+    env_sub: int    # Each volume/frequency entry is repeated `env_sub` times.
+
+    pitches: List[float]
+
+    tuning: str = field(init=False)
+    def __post_init__(self):
+        nsamp = self.nsamp
+        if nsamp % 16:
+            raise MMKError(f'cannot load sample with {nsamp} samples != n*16')
+        self.tuning = '$%02x $00' % (nsamp // 16)
+
+
 class MMKParser:
     SHEBANG = '%mmk0.1'
-    SEGMENT = str
 
-    def __init__(self, in_str: str, tuning: Union[dict, None]):
+    def __init__(
+        self,
+        in_str: str,
+        tuning: Optional[Dict[str, str]],
+        wavetable: Optional[Dict[str, WavetableMetadata]]
+    ):
+        # Input parameters
         self.in_str = in_str
         self.tuning = tuning
+        self.wavetable = wavetable
 
+        # Parser state
         self.orig_state = {
             'isvol': False, 'ispan': False, 'panscale': Fraction('5/64'), 'vmod': Fraction(1)}
         self.state = self.orig_state.copy()
         self.defines = {}  # type: Dict[str, str]
 
+        # File IO
         self.pos = 0
-        self.out = []
+        self.out = StringIO()
+
 
         # debug
         self._command = None
@@ -149,6 +272,20 @@ class MMKParser:
                             .format(begin + self.pos, end))
         self.in_str = string
         self.pos = end
+
+    def until_comment(self):
+        return self.end_at(any_of(';\n'))
+
+    @contextmanager
+    def capture(self) -> StringIO:
+        orig = self.out
+
+        self.out = StringIO()
+        with self.out:
+            yield self.out
+
+        self.out = orig
+
 
     # **** Parsing ****
     def get_until(self, regex: Union[Pattern, str], strict) -> str:
@@ -213,7 +350,7 @@ class MMKParser:
             word = self.defines.get(word[1:], word)     # dead code?
         return word, whitespace
 
-    def get_words(self, n: int) -> List[str]:
+    def get_phrase(self, n: int) -> List[str]:
         """ Gets n words, plus trailing whitespace. """
         if n <= 0:
             raise ValueError('invalid n={} < 0'.format(repr(n)))
@@ -251,13 +388,7 @@ class MMKParser:
         return quoted, whitespace
 
     def get_line(self):
-        self.skip_spaces(False, exclude='')
-
-        line = ''
-        while not self.peek() == '\n':  # fixme shlemiel the painter
-            line += self.get_char()
-        whitespace = ''
-        return line, whitespace
+        return self.get_until(any_of('\n'), strict=False)
 
     # Returns parse (doesn't fetch trailing whitespace)
     def get_int(self):
@@ -267,7 +398,7 @@ class MMKParser:
         return parse_int_round(buffer)
 
     def put(self, pstr):
-        self.out.append(pstr)
+        self.out.write(pstr)
 
     # Begin parsing functions!
     def parse_define(self, command_case, whitespace):
@@ -280,7 +411,7 @@ class MMKParser:
     # **** Transpose ****
 
     def parse_transpose(self) -> None:
-        transpose_str, whitespace = self.get_words(1)
+        transpose_str, whitespace = self.get_phrase(1)
         transpose = parse_int_hex(transpose_str)
 
         if transpose not in range(-0x80, 0x80):
@@ -379,6 +510,7 @@ class MMKParser:
         if self.tuning is None:
             perr('Cannot use %tune without a tuning file')
             raise MMKError
+
         tuning = self.tuning[brr]
 
         self.put('"{}"{}'.format(brr, whitespace))
@@ -427,7 +559,7 @@ class MMKParser:
     def parse_gain(self, *, instr):
         # Look for a matching GAIN value, ensure the input rate lies in-bounds,
         # then write a hex command.
-        curve, rate, whitespace = self.get_words(2)
+        curve, rate, whitespace = self.get_phrase(2)
 
         if instr:
             prefix = '$00 $00'
@@ -461,7 +593,7 @@ class MMKParser:
 
         :param instr: Whether ADSR command occurs in instrument definition (or MML command)
         """
-        attack, decay, sustain, release, whitespace = self.get_words(4)
+        attack, decay, sustain, release, whitespace = self.get_phrase(4)
         if sustain.startswith('full'):
             sustain = '7'
 
@@ -494,6 +626,43 @@ class MMKParser:
             raise MMKError('Invalid ADSR {} {} (must be < {})'.format(caption, val, end))
         return val
 
+    # **** Wavetable sweeps ****
+
+    def parse_wave_group(self, is_instruments: bool):
+        name, whitespace = self.get_quoted()
+        meta = self.wavetable[name]
+        waves = self._get_waves_in_group(name)
+
+        with self.capture() as output, self.until_comment():
+            if is_instruments:
+                self.parse_instruments()
+                self.put(' ' + meta.tuning)
+            else:
+                self.skip_spaces(True, exclude='\n')
+
+            after = output.getvalue()
+        comments = self.get_line()
+        self.skip_chars(1, keep=False)  # remove trailing newline
+
+        for wave in waves:
+            # eh, missing indentation. who cares.
+            self.put(f'"{wave}"{whitespace}{after}{comments}\n')
+            comments = ''
+
+    _WAVE_GROUP_TEMPLATE = '{}-{:03}.brr'
+
+    def _get_waves_in_group(self, name: str) -> List[str]:
+        """ Returns a list of N wave names. """
+        # if name in self.wave_groups:
+        #     return self.wave_groups[name]
+
+        if self.wavetable is None:
+            raise MMKError('cannot load wavetables, missing wavetable.yaml')
+
+        meta = self.wavetable[name]
+        nwave = ceildiv(meta.ntick, meta.wave_sub)
+        wave_names = [self._WAVE_GROUP_TEMPLATE.format(name, i) for i in range(nwave)]
+        return wave_names
 
     # self.state:
     # PAN, VOL, INSTR: str (Remove segments?)
@@ -543,10 +712,8 @@ class MMKParser:
                             self.skip_chars(1, keep=True)
                             method()
 
-                    branch('samples', self.parse_instruments)     # FIXME
+                    branch('samples', self.parse_samples)
                     branch('instruments', self.parse_instruments)
-
-
                     continue
 
                 # Begin custom commands.
@@ -566,7 +733,7 @@ class MMKParser:
 
                     if command == 'define':
                         key = self.get_word()[0]
-                        value = self.get_line()[0]
+                        value = self.get_line()
                         self.defines[key] = value
                         continue
 
@@ -647,7 +814,7 @@ class MMKParser:
                     self.skip_chars(1, keep=True)
                     self.skip_spaces(True)
 
-            return ''.join(self.out).strip() + '\n'
+            return self.out.getvalue().strip() + '\n'
         except Exception:
             # Seek at least 100 characters back
             begin_pos = self._begin_pos
@@ -672,133 +839,115 @@ class MMKParser:
 
             raise  # main() eats MMKError to avoid visual noise
 
-    def parse_instruments(self, close='}'):
-        """
-        Parses #instruments{...} blocks. Eats trailing close-brace.
-        Also used for parsing quoted BRR filenames within #instruments.
-        :param close: Which characters close the current block.
-        :return: None
-        """
-        while self.pos < self.size():
-            # pos = self.pos
-            self.skip_spaces(True, exclude=close)
-            self._begin_pos = self.pos
-            # assert pos == self.pos
-            char = self.peek()
+    # noinspection PyMethodParameters
+    def _brace_parser_factory(mapping: Dict[str, Callable[['MMKParser'], None]])\
+            -> Callable:
+        def parse(self: 'MMKParser'):
+            """
+            Parses #instruments{...} blocks. Eats trailing close-brace.
+            Also used for parsing quoted BRR filenames within #instruments.
+            """
+            close = '}'
 
-            if char in close:
-                self.skip_chars(1, True)  # {}, ""
-                self.skip_spaces(True, exclude='\n')
-                return
+            while self.pos < self.size():
+                # pos = self.pos
+                self.skip_spaces(True, exclude=close)
+                self._begin_pos = self.pos
+                # assert pos == self.pos
+                char = self.peek()
 
-            if char == '%':
-                self.skip_chars(1, False)
+                if char in close:
+                    self.skip_chars(1, True)  # {}, ""
+                    self.skip_spaces(True, exclude='\n')
+                    return
 
-                command_case, whitespace = self.get_word()
-                command = command_case.lower()
-                self._command = command
+                if char == '%':
+                    self.skip_chars(1, False)
 
-                # **** Parse defines ****
-                if self.parse_define(command_case, whitespace):
-                    continue
+                    command_case, whitespace = self.get_word()
+                    command = command_case.lower()
+                    self._command = command
 
-                # **** Parse commands ****
-                if command == 'tune':
-                    self.parse_tune()
-                    continue
-
-                if command == 'gain':
-                    self.parse_gain(instr=True)
-                    continue
-
-                if command == 'adsr':
-                    self.parse_adsr(instr=True)
-                    continue
-
-                raise MMKError('Invalid command ' + command)
-            else:
-                self.skip_chars(1, keep=True)
-                self.skip_spaces(True)
+                    # **** Parse defines ****
+                    if self.parse_define(command_case, whitespace):
+                        pass
+                    # **** Parse commands ****
+                    elif command in mapping:
+                        mapping[command](self)
+                    else:
+                        perr(mapping.keys())
+                        raise MMKError('Invalid command ' + command)
+                else:
+                    self.skip_chars(1, keep=True)
+                    self.skip_spaces(True)
+        return parse
 
 
-def remove_ext(path):
-    head = os.path.splitext(path)[0]
-    return head
+    # noinspection PyArgumentList
+    parse_instruments = _brace_parser_factory({
+        'tune': lambda self: self.parse_tune(),
+        'gain': lambda self: self.parse_gain(instr=True),
+        'adsr': lambda self: self.parse_adsr(instr=True),
+        'wave_group': lambda self: self.parse_wave_group(is_instruments=True),
+    })
 
+    # noinspection PyArgumentList
+    parse_samples = _brace_parser_factory({
+        'wave_group': lambda self: self.parse_wave_group(is_instruments=False),
+    })
 
-from amktools.common import TUNING_PATH
-SUFFIX = '.txt'
-
-
-ERR = 1
-
-def main(args: List[str]) -> int:
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        argument_default=argparse.SUPPRESS,
-        description='Parse one or more MMK files to a single AddmusicK source file.',
-        epilog='''Examples:
-`mmk_parser file.mmk`                   outputs to file.txt
-`mmk_parser file.mmk infile2.mmk`       outputs to file.txt
-`mmk_parser file.mmk -o outfile.txt`    outputs to outfile.txt''')
-
-    parser.add_argument('files', help='Input files, will be concatenated', nargs='+')
-    parser.add_argument('-t', '--tuning',
-                        help='Tuning file produced by convert_brr (defaults to {})'.format(TUNING_PATH))
-    parser.add_argument('-o', '--outpath', help='Output path (if omitted)')
-    args = parser.parse_args(args)
-
-    # FILES
-    inpaths = args.files
-    first_path = inpaths[0]
-
-    datas = []
-    for _inpath in inpaths:
-        with open(_inpath) as ifile:
-            datas.append(ifile.read())
-    datas.append('\n')
-    in_str = '\n'.join(datas)
-
-    # TUNING
-    if 'tuning' in args:
-        tuning_path = args.tuning
-    else:
-        tuning_path = str(Path(first_path, '..', TUNING_PATH).resolve())
-    try:
-        with open(tuning_path) as f:
-            tuning = yaml.load(f)
-        if type(tuning) != dict:
-            perr('invalid tuning file {}, must be YAML key-value map'.format(tuning_path))
-            return ERR
-    except FileNotFoundError:
-        tuning = None
-
-    # OUT PATH
-    if 'outpath' in args:
-        outpath = args.outpath
-    else:
-        outpath = remove_ext(first_path) + SUFFIX
-
-    for _inpath in inpaths:
-        if Path(outpath).resolve() == Path(_inpath).resolve():
-            perr('Error: Output file {} will overwrite an input file!'.format(outpath))
-            if '.txt' in _inpath.lower():
-                perr('Try renaming input files to .mmk')
-            return ERR
-
-    # PARSE
-    parser = MMKParser(in_str, tuning)
-    try:
-        outstr = parser.parse()
-    except MMKError as e:
-        if str(e):
-            perr('Error:', str(e))
-        return ERR
-
-    with open(outpath, 'w') as ofile:
-        ofile.write(outstr)
-
-    return 0
+    # def parse_instruments(self):
+    #     """
+    #     Parses #instruments{...} blocks. Eats trailing close-brace.
+    #     Also used for parsing quoted BRR filenames within #instruments.
+    #     """
+    #     close = '}'
+    #
+    #     while self.pos < self.size():
+    #         # pos = self.pos
+    #         self.skip_spaces(True, exclude=close)
+    #         self._begin_pos = self.pos
+    #         # assert pos == self.pos
+    #         char = self.peek()
+    #
+    #         if char in close:
+    #             self.skip_chars(1, True)  # {}, ""
+    #             self.skip_spaces(True, exclude='\n')
+    #             return
+    #
+    #         if char == '%':
+    #             self.skip_chars(1, False)
+    #
+    #             command_case, whitespace = self.get_word()
+    #             command = command_case.lower()
+    #             self._command = command
+    #
+    #             # **** Parse defines ****
+    #             if self.parse_define(command_case, whitespace):
+    #                 continue
+    #
+    #             # **** Parse commands ****
+    #             if command == 'tune':
+    #                 self.parse_tune()
+    #                 continue
+    #
+    #             if command == 'gain':
+    #                 self.parse_gain(instr=True)
+    #                 continue
+    #
+    #             if command == 'adsr':
+    #                 self.parse_adsr(instr=True)
+    #                 continue
+    #
+    #             # Wave groups (wavetable sweeps)
+    #             if command == 'wave_group':
+    #                 self.parse_wave_group()
+    #                 continue
+    #
+    #             raise MMKError('Invalid command ' + command)
+    #         else:
+    #             self.skip_chars(1, keep=True)
+    #             self.skip_spaces(True)
 
 
 if __name__ == '__main__':

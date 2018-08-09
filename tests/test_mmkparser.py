@@ -35,7 +35,7 @@ tuning = yaml.load(r'test.brr: $F0 $0F')
 
 
 def test_constants() -> None:
-    assert mmkparser.ERR != 0
+    assert mmkparser.RETURN_ERR != 0
 
 
 def call_mmkparser(filename: Path, expected_ret: int) -> None:
@@ -57,7 +57,7 @@ def test_dont_overwrite_txt(mocker) -> None:
     mmkparser.MMKParser.parse.return_value = parse_output
 
     with CliRunner().isolated_filesystem():
-        call_mmkparser(txt, mmkparser.ERR)
+        call_mmkparser(txt, mmkparser.RETURN_ERR)
 
 
 def test_extension(mocker) -> None:

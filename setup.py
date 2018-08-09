@@ -10,6 +10,7 @@ setup(
     author='nyanpasu64',
     author_email='',
     description='Preprocessor/compiler and automated sample extractor/tuner for AddMusicK',
-    requires=['sf2utils', 'plumbum', 'ruamel.yaml', 'click'],
+    requires=['sf2utils', 'plumbum', 'ruamel.yaml', 'click',
+              'dataclasses;python_version<"3.7"'],
     # TODO https://python-packaging.readthedocs.io/en/latest/command-line-scripts.html#the-console-scripts-entry-point
 )
