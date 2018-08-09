@@ -256,21 +256,32 @@ class MMKParser:
         self.pos += 1
         return out
 
+    # I/O manipulation, AKA "wish I wrote a proper lexer/parser/output"
+
     @contextmanager
-    def end_at(self, sub):
+    def set_input(self, in_str: str):
         string = self.in_str
         begin = self.pos
 
-        self.in_str = self.get_until(sub, strict=False)
-
-        end = self.pos
+        self.in_str = in_str
         self.pos = 0
         yield
 
-        if begin + self.pos != end:
-            raise Exception('Bounded parsing error, parsing ended at {} but region ends at {}'
-                            .format(begin + self.pos, end))
         self.in_str = string
+        self.pos = begin
+
+
+    @contextmanager
+    def end_at(self, sub):
+        begin = self.pos
+        in_str = self.get_until(sub, strict=False)
+        end = self.pos
+
+        with self.set_input(in_str):
+            yield
+            if begin + self.pos != end:
+                raise Exception('Bounded parsing error, parsing ended at {} but region ends at {}'
+                                .format(begin + self.pos, end))
         self.pos = end
 
     def until_comment(self):
@@ -652,7 +663,7 @@ class MMKParser:
     _WAVE_GROUP_TEMPLATE = '{}-{:03}.brr'
 
     def _get_waves_in_group(self, name: str) -> List[str]:
-        """ Returns a list of N wave names. """
+        """ Returns a list of N BRR wave names. """
         # if name in self.wave_groups:
         #     return self.wave_groups[name]
 
@@ -663,6 +674,42 @@ class MMKParser:
         nwave = ceildiv(meta.ntick, meta.wave_sub)
         wave_names = [self._WAVE_GROUP_TEMPLATE.format(name, i) for i in range(nwave)]
         return wave_names
+
+    def parse_wave_sweep(self):
+        """ Print a wavetable sweep. """
+        name, whitespace = self.get_quoted()
+        meta = self.wavetable[name]
+
+        # Ensure wavetable remains at full volume
+        with self.set_input('-1,-1,full,0'):
+            self.parse_adsr(instr=False)
+
+        # Each note follows a pitch/wave event. It is printed with the
+        # proper duration, when the next pitch/wave event begins.
+        prev_tick = 0
+        def print_note():
+            nonlocal prev_tick
+            if tick > prev_tick:
+                self.put(f'c={tick - prev_tick}')    # TODO pitch
+                prev_tick = tick
+
+        for tick in range(meta.ntick):
+            if tick % meta.env_sub == 0:
+                env_idx = tick // meta.env_sub
+                print_note()
+
+                # Print pitch
+                pass    # TODO pitch
+
+            if tick % meta.wave_sub == 0:
+                wave_idx = tick // meta.wave_sub
+                print_note()
+
+                # Print wave
+                wave = self._WAVE_GROUP_TEMPLATE.format(name, wave_idx)
+                self.put(f'("{wave}", {meta.tuning[:3]})')
+            # Print note
+        print_note()
 
     # self.state:
     # PAN, VOL, INSTR: str (Remove segments?)
@@ -773,6 +820,11 @@ class MMKParser:
 
                     if command == 'gain':
                         self.parse_gain(instr=False)
+                        continue
+
+                    # Wavetable sweep
+                    if command == 'wave_sweep':
+                        self.parse_wave_sweep()
                         continue
 
                     # ONE ARGUMENT
@@ -895,60 +947,6 @@ class MMKParser:
     parse_samples = _brace_parser_factory({
         'wave_group': lambda self: self.parse_wave_group(is_instruments=False),
     })
-
-    # def parse_instruments(self):
-    #     """
-    #     Parses #instruments{...} blocks. Eats trailing close-brace.
-    #     Also used for parsing quoted BRR filenames within #instruments.
-    #     """
-    #     close = '}'
-    #
-    #     while self.pos < self.size():
-    #         # pos = self.pos
-    #         self.skip_spaces(True, exclude=close)
-    #         self._begin_pos = self.pos
-    #         # assert pos == self.pos
-    #         char = self.peek()
-    #
-    #         if char in close:
-    #             self.skip_chars(1, True)  # {}, ""
-    #             self.skip_spaces(True, exclude='\n')
-    #             return
-    #
-    #         if char == '%':
-    #             self.skip_chars(1, False)
-    #
-    #             command_case, whitespace = self.get_word()
-    #             command = command_case.lower()
-    #             self._command = command
-    #
-    #             # **** Parse defines ****
-    #             if self.parse_define(command_case, whitespace):
-    #                 continue
-    #
-    #             # **** Parse commands ****
-    #             if command == 'tune':
-    #                 self.parse_tune()
-    #                 continue
-    #
-    #             if command == 'gain':
-    #                 self.parse_gain(instr=True)
-    #                 continue
-    #
-    #             if command == 'adsr':
-    #                 self.parse_adsr(instr=True)
-    #                 continue
-    #
-    #             # Wave groups (wavetable sweeps)
-    #             if command == 'wave_group':
-    #                 self.parse_wave_group()
-    #                 continue
-    #
-    #             raise MMKError('Invalid command ' + command)
-    #         else:
-    #             self.skip_chars(1, keep=True)
-    #             self.skip_spaces(True)
-
 
 if __name__ == '__main__':
     ret = main(sys.argv[1:])
