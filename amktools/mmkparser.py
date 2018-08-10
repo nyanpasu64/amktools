@@ -151,6 +151,8 @@ def parse_frac(infrac):
 
 
 def int2hex(in_frac):
+    if not (isinstance(in_frac, int) and 0 <= in_frac <= 0xff):
+        raise ValueError(f'Passed invalid value {in_frac} to int2hex')
     value = '$%02x' % int(in_frac)
     return value
 
