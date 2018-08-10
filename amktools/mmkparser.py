@@ -241,7 +241,12 @@ class MMKParser:
         self.orig_state = {
             'isvol': False, 'ispan': False, 'panscale': Fraction('5/64'), 'vmod': Fraction(1)}
         self.state = self.orig_state.copy()
-        self.defines = {}  # type: Dict[str, str]
+        self.defines = dict(
+            viboff='$DF',
+            tremoff='$E5 $00 $00 $00',
+            legato='$F4 $01',
+            restore_instr='$F4 $09'
+        )  # type: Dict[str, str]
 
         # Wavetable parser state
         self.curr_chan: int = None
