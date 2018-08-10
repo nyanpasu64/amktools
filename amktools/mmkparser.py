@@ -682,7 +682,7 @@ class MMKParser:
     }
     def parse_callback(self):
         expr = self.get_until(any_of(')'), strict=True)
-        args = [word.strip() for word in expr.split()]
+        args = [word.strip() for word in expr.split(',')]
 
         # if len(args) < 1:
         #     raise MMKError(
