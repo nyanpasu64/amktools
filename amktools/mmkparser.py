@@ -657,6 +657,52 @@ class MMKParser:
             raise MMKError('Invalid ADSR/gain {} {} (must be < {})'.format(caption, val, end))
         return val
 
+    # **** event handler callbacks ****
+    event_map = {
+        'clear': 0,
+
+        'keyon': -1,
+        'kon': -1,
+        'begin': -1,
+        'start': -1,
+
+        'after': 1,     # after keyon
+
+        'before': 2,    # before keyoff
+
+        'keyoff': 3,
+        'koff': 3,
+        'kof': 3,
+        'end': 3,
+
+        'now': 4
+    }
+    def parse_callback(self):
+        expr = self.get_until(any_of(')'), strict=True)
+        args = [word.strip() for word in expr.split()]
+
+        # if len(args) < 1:
+        #     raise MMKError(
+        #         f"Invalid callback (!{expr}), must have (!callback)[] or (!callback, event)")
+
+        if len(args) < 2:
+            # Callback definition (!n)
+            self.put(expr)
+            return
+
+        callback_num = args[0]
+        event = args[1]
+        event_num = self.event_map[event]
+
+        if event in ['after', 'before']:
+            time = args[2]
+            if len(args) != 3:
+                raise MMKError(
+                    f"Invalid event binding (!{expr}), must have duration (measure/$x)")
+            self.put('{}, {}, {}'.format(callback_num, event_num, time))
+        else:
+            self.put('{}, {}'.format(callback_num, event_num))
+
     # **** #instruments ****
 
     def parse_tune(self):
@@ -879,6 +925,13 @@ class MMKParser:
                         self.curr_chan = int(chan)
                         self.put(chan)
 
+                    continue
+
+                if char == '(':
+                    self.skip_chars(1, keep=True)
+                    if self.peek() == '!':
+                        self.skip_chars(1, keep=True)
+                        self.parse_callback()
                     continue
 
                 # Begin custom commands.
