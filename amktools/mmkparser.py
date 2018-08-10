@@ -159,6 +159,14 @@ def int2hex(in_frac):
 to_hex = int2hex
 
 
+OCTAVE = 12
+notes = ['c', 'c+', 'd', 'd+', 'e', 'f', 'f+', 'g', 'g+', 'a', 'a+', 'b']
+def format_note(midi: int):
+    octave = (midi // OCTAVE) - 1
+    note = notes[midi % OCTAVE]
+    return f'o{octave}{note}'
+
+
 QUARTER_TO_TICKS = 0x30
 
 
@@ -432,6 +440,7 @@ class MMKParser:
 
             self.put(to_hex(num))
             not_first = True
+        self.put('  ')
 
     # Begin parsing functions!
     def parse_define(self, command_case, whitespace):
@@ -738,6 +747,7 @@ class MMKParser:
         wave_names = [self._WAVE_GROUP_TEMPLATE.format(name, i) for i in range(nwave)]
         return wave_names
 
+    _DETUNE = 0xEE
     def parse_wave_sweep(self):
         """ Print a wavetable sweep. """
         name, _ = self.get_quoted()
@@ -752,31 +762,39 @@ class MMKParser:
         self.put_hex(0xf3, self.silent_idx, meta.tuning)
         self.put('  ')
 
+        # Pitch tracking
+        midi = 0   # MIDI
+
         # Each note follows a pitch/wave event. It is printed with the
         # proper duration, when the next pitch/wave event begins.
         prev_tick = 0
         def print_note():
             nonlocal prev_tick
             if tick > prev_tick:
-                self.put(f'c={tick - prev_tick}  ')    # TODO pitch
+                self.put(f'{format_note(midi)}={tick - prev_tick}  ')
                 prev_tick = tick
 
         ntick = min(ntick_playback, meta.ntick)
         wave_idx = 0
         for tick in range(ntick):
+            # Wave envelope
+            if tick % meta.wave_sub == 0:
+                wave_idx = tick // meta.wave_sub
+                print_note()
+                # Print wave
+                self._put_load_sample(meta.smp_idx + wave_idx)
+
+            # Pitch envelope
             if tick % meta.env_sub == 0:
                 env_idx = tick // meta.env_sub
                 print_note()
 
                 # Print pitch
-                pass    # TODO pitch
-
-            if tick % meta.wave_sub == 0:
-                wave_idx = tick // meta.wave_sub
-                print_note()
-
-                # Print wave
-                self._put_load_sample(meta.smp_idx + wave_idx)
+                _pitch = meta.pitches[env_idx]
+                midi = int(_pitch)
+                detune = _pitch - midi
+                self.put_hex(self._DETUNE, int(detune * 256))
+                # midi is used by print_note()
 
         tick = ntick_playback
         if meta.silent:
@@ -792,7 +810,6 @@ class MMKParser:
     _REG = 0xF6
     def _put_load_sample(self, smp_idx: int):
         self.put_hex(self._REG, self._get_wave_reg(), smp_idx)
-        self.put('  ')
 
     # self.state:
     # PAN, VOL, INSTR: str (Remove segments?)
