@@ -217,7 +217,7 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
 
         if at is not None:
             sample.original_pitch = at
-            sample.pitch_correction = 0
+            # sample.pitch_correction = 0
 
         # Loop sample.
         # this is fucking fizzbuzz
