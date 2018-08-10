@@ -195,11 +195,11 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
         with open(cfg_path) as cfgfile:
             cfg = AttrDict(eval(cfgfile.read()))
 
+        rate = cfg.get('rate', None)    # sampling rate
         ratio = cfg.get('ratio', 1)
         volume = cfg.get('volume', 1)
         transpose = cfg.get('transpose', 0)
         at = cfg.get('at', None)  # MIDI pitch of original note
-
         # Load resampling settings.
 
         if cfg_fname in name2sample:
@@ -235,7 +235,7 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
         # Convert sample.
 
         conv = Converter(opt, cfg_prefix, transpose=transpose)
-        sample.sample_rate = conv.rate
+        sample.sample_rate = rate or conv.rate
 
         ratio = Fraction(ratio)
         ratio = conv.convert(ratio=ratio, loop=loop, truncate=truncate, volume=volume, decode=True)
