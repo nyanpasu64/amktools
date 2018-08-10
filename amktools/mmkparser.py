@@ -277,7 +277,7 @@ class MMKParser:
         self.pos += 1
         return out
 
-    # I/O manipulation, AKA "wish I wrote a proper lexer/parser/output"
+    # **** I/O manipulation, AKA "wish I wrote a proper lexer/parser/output" ****
 
     @contextmanager
     def set_input(self, in_str: str):
@@ -317,6 +317,10 @@ class MMKParser:
             yield self.out
 
         self.out = orig
+
+    def parse_str(self, in_str: str):
+        with self.set_input(in_str):
+            self.parse()
 
 
     # **** Parsing ****
@@ -596,11 +600,7 @@ class MMKParser:
         rate = parse_int_hex(rate)
         for *curves, begin, max_rate in self._GAINS:
             if curve in curves:
-                if rate not in range(max_rate):
-                    perr('Invalid rate %s for curve %s (rate < %s)' %
-                         (raw_rate, curve, hex(max_rate)))
-                    raise MMKError
-
+                rate = self._index_check(curve, rate, max_rate)
                 self.put('%s %s%s' % (prefix, int2hex(begin + rate), whitespace))
                 return
 
@@ -649,7 +649,7 @@ class MMKParser:
         if val < 0:
             val += end
         if val not in range(end):
-            raise MMKError('Invalid ADSR {} {} (must be < {})'.format(caption, val, end))
+            raise MMKError('Invalid ADSR/gain {} {} (must be < {})'.format(caption, val, end))
         return val
 
     # **** #instruments ****
@@ -728,7 +728,7 @@ class MMKParser:
             meta.smp_idx = self.smp_num
             self.smp_num += len(waves)
 
-    _WAVE_GROUP_TEMPLATE = '{}-{:03}.brr'
+    WAVE_GROUP_TEMPLATE = '{}-{:03}.brr'
 
     def _get_waves_in_group(self, name: str, ntick_playback: int) -> List[str]:
         """ Returns a list of N BRR wave names. """
@@ -744,23 +744,24 @@ class MMKParser:
             meta.ntick = min(meta.ntick, ntick_playback)
 
         nwave = ceildiv(meta.ntick, meta.wave_sub)
-        wave_names = [self._WAVE_GROUP_TEMPLATE.format(name, i) for i in range(nwave)]
+        wave_names = [self.WAVE_GROUP_TEMPLATE.format(name, i) for i in range(nwave)]
         return wave_names
 
-    _DETUNE = 0xEE
+    DETUNE = 0xEE
+    LEGATO = '$F4 $01  '
     def parse_wave_sweep(self):
         """ Print a wavetable sweep. """
         name, _ = self.get_quoted()
-        ntick_playback = self.get_int()     # The sweep lasts for N ticks
+        ntick_note = self.get_int()     # The sweep lasts for N ticks
         meta = self.wavetable[name]
 
-        # Load instrument and tuning
-        with self.set_input('-1,-1,full,0  '):
-            self.parse_adsr(instr=False)
+        # Load silent instrument with proper tuning
+        self.parse_str('%adsr -3,-1,full,0  ')
         if self.silent_idx is None:
             raise MMKError('cannot %wave_sweep without silent sample defined')
         self.put_hex(0xf3, self.silent_idx, meta.tuning)
         self.put('  ')
+        self.put(self.LEGATO)   # Legato glues right+2, and unglues left+right.
 
         # Pitch tracking
         midi = 0   # MIDI
@@ -774,9 +775,9 @@ class MMKParser:
                 self.put(f'{format_note(midi)}={tick - prev_tick}  ')
                 prev_tick = tick
 
-        ntick = min(ntick_playback, meta.ntick)
+        ntick_instr = min(ntick_note, meta.ntick)
         wave_idx = 0
-        for tick in range(ntick):
+        for tick in range(ntick_instr):
             # Wave envelope
             if tick % meta.wave_sub == 0:
                 wave_idx = tick // meta.wave_sub
@@ -793,16 +794,23 @@ class MMKParser:
                 _pitch = meta.pitches[env_idx]
                 midi = int(_pitch)
                 detune = _pitch - midi
-                self.put_hex(self._DETUNE, int(detune * 256))
+                self.put_hex(self.DETUNE, int(detune * 256))
                 # midi is used by print_note()
 
-        tick = ntick_playback
         if meta.silent:
-            smp_idx = self.silent_idx
+            tick = ntick_instr
+            print_note()
+
+            # GAIN starts when the right note starts.
+            self.parse_str('%gain down $18  ')
+            tick = ntick_note
+            print_note()
         else:
-            smp_idx = meta.smp_idx + wave_idx
-        self._put_load_sample(smp_idx)
-        print_note()
+            tick = ntick_note
+            print_note()
+
+        self.put(self.LEGATO)   # Legato deactivates immediately.
+        self.put_hex(self.DETUNE, 0)
 
     def _get_wave_reg(self):
         return 0x10 * self.curr_chan + 0x04
