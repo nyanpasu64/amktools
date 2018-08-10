@@ -150,13 +150,11 @@ def parse_frac(infrac):
     return Fraction(infrac)
 
 
-def int2hex(in_frac):
-    if not (isinstance(in_frac, int) and 0 <= in_frac <= 0xff):
-        raise ValueError(f'Passed invalid value {in_frac} to int2hex')
+def to_hex(in_frac):
+    if not (0 <= in_frac < 0x100):
+        raise ValueError(f'Passed invalid {type(in_frac)} {in_frac} to int2hex')
     value = '$%02x' % int(in_frac)
     return value
-
-to_hex = int2hex
 
 
 OCTAVE = 12
@@ -197,7 +195,7 @@ def none_of(chars) -> Pattern:
     return re.compile(regex)
 
 
-def parse_time(word: str):
+def parse_time(word: str) -> Fraction:
     return parse_frac(word) * QUARTER_TO_TICKS
 
 
@@ -471,7 +469,7 @@ class MMKParser:
         if transpose not in range(-0x80, 0x80):
             raise MMKError('invalid transpose {}'.format(transpose_str))
 
-        transpose_hex = int2hex(transpose & 0xff)
+        transpose_hex = to_hex(transpose & 0xff)
         self.put('$FA $02 {}'.format(transpose_hex))
         self.put(whitespace)
 
@@ -498,13 +496,13 @@ class MMKParser:
         # This both returns the volume and modifies state.
         # Time to throw away state?
         new_vol = self.state['vol'] = self.calc_vol(arg)    # type: str
-        hex_vol = int2hex(new_vol)
+        hex_vol = to_hex(new_vol)
         return hex_vol
 
     def parse_vbend(self, time, vol, whitespace):
         # Takes a fraction of a quarter note as input.
         # Converts to ticks.
-        time_hex = int2hex(parse_time(time))
+        time_hex = to_hex(parse_time(time))
         vol_hex = self.parse_vol_hex(vol)
 
         self.put('$E8 {} {}{}'.format(time_hex, vol_hex, whitespace))
@@ -531,9 +529,9 @@ class MMKParser:
         self.put('y' + self.state['pan'])
 
     def parse_ybend(self, duration, pan):
-        duration_hex = int2hex(parse_time(duration))
+        duration_hex = to_hex(parse_time(duration))
         self.state['pan'] = self.calc_pan(pan)
-        pan_hex = int2hex(self.state['pan'])
+        pan_hex = to_hex(self.state['pan'])
 
         self.put('$DC {} {}'.format(duration_hex, pan_hex))
 
@@ -561,22 +559,22 @@ class MMKParser:
     def parse_pbend(self, delay, time, note, whitespace):
         # Takes a fraction of a quarter note as input.
         # Converts to ticks.
-        delay_hex = int2hex(parse_time(delay))
-        time_hex = int2hex(parse_time(time))
+        delay_hex = to_hex(parse_time(delay))
+        time_hex = to_hex(parse_time(time))
 
         self.put('$DD {} {} {}{}'.format(delay_hex, time_hex, note, whitespace))
 
     # **** oscillatory effects ****
 
     def parse_vib(self, delay, frequency, amplitude, whitespace):
-        delay_hex = int2hex(parse_time(delay))
-        freq_hex = int2hex(parse_frac(frequency))
+        delay_hex = to_hex(parse_time(delay))
+        freq_hex = to_hex(parse_frac(frequency))
 
         self.put('$DE {} {} {}{}'.format(delay_hex, freq_hex, amplitude, whitespace))
 
     def parse_trem(self, delay, frequency, amplitude, whitespace):
-        delay_hex = int2hex(parse_time(delay))
-        freq_hex = int2hex(parse_frac(frequency))
+        delay_hex = to_hex(parse_time(delay))
+        freq_hex = to_hex(parse_frac(frequency))
 
         self.put('$E5 {} {} {}{}'.format(delay_hex, freq_hex, amplitude, whitespace))
 
@@ -611,7 +609,7 @@ class MMKParser:
         for *curves, begin, max_rate in self._GAINS:
             if curve in curves:
                 rate = self._index_check(curve, rate, max_rate)
-                self.put('%s %s%s' % (prefix, int2hex(begin + rate), whitespace))
+                self.put('%s %s%s' % (prefix, to_hex(begin + rate), whitespace))
                 return
 
         perr('Invalid gain %s, options are:' % repr(curve))
@@ -651,7 +649,7 @@ class MMKParser:
             fmt = '{} {} $A0'
         else:
             fmt = '$ED {} {}'
-        self.put(fmt.format(int2hex(a), int2hex(b)))
+        self.put(fmt.format(to_hex(a), to_hex(b)))
         self.put(whitespace)
 
     @staticmethod
