@@ -223,6 +223,7 @@ class WavetableMetadata:
 
 class MMKParser:
     SHEBANG = '%mmk0.1'
+    FIRST_INSTRUMENT = 30
 
     def __init__(
             self,
@@ -249,6 +250,7 @@ class MMKParser:
         # Wavetable parser state
         self.curr_chan: int = None
         self.smp_num = 0
+        self.instr_num = self.FIRST_INSTRUMENT
         self.silent_idx: int = None
 
         # File IO
@@ -708,6 +710,24 @@ class MMKParser:
 
     # **** #instruments ****
 
+    def parse_instr(self):
+        with self.capture() as output, self.until_comment():
+            self.parse_instruments()
+            val = output.getvalue()
+        self.put(val)
+
+        with self.set_input(val):
+            instr_path, whitespace = self.get_quoted()
+
+        instr_path = Path(instr_path)
+        if instr_path.suffix != '.brr':
+            raise MMKError(f'Invalid instrument sample {instr_path} not .brr file')
+
+        instr_name = instr_path.stem
+        self.defines[instr_name] = f'@{self.instr_num}'
+
+        self.instr_num += 1
+
     def parse_tune(self):
         self.smp_num += 1
         # "test.brr" $ad $sr $gain $tune $tune
@@ -1111,6 +1131,7 @@ class MMKParser:
 
     # noinspection PyArgumentList
     parse_instruments = _brace_parser_factory({
+        'instr': lambda self: self.parse_instr(),
         'group': lambda self: self.parse_group(),
         'tune': lambda self: self.parse_tune(),
         'gain': lambda self: self.parse_gain(instr=True),
