@@ -156,6 +156,8 @@ def int2hex(in_frac):
     value = '$%02x' % int(in_frac)
     return value
 
+to_hex = int2hex
+
 
 QUARTER_TO_TICKS = 0x30
 
@@ -201,22 +203,26 @@ class WavetableMetadata:
 
     pitches: List[float]
 
-    tuning: str = field(init=False)
+    tuning: int = field(init=False)
+    tuning_str: str = field(init=False)
+    smp_idx: Optional[int] = None
+    silent: bool = False
     def __post_init__(self):
         nsamp = self.nsamp
         if nsamp % 16:
             raise MMKError(f'cannot load sample with {nsamp} samples != n*16')
-        self.tuning = '$%02x $00' % (nsamp // 16)
+        self.tuning = nsamp // 16
+        self.tuning_str = '$%02x $00' % self.tuning
 
 
 class MMKParser:
     SHEBANG = '%mmk0.1'
 
     def __init__(
-        self,
-        in_str: str,
-        tuning: Optional[Dict[str, str]],
-        wavetable: Optional[Dict[str, WavetableMetadata]]
+            self,
+            in_str: str,
+            tuning: Optional[Dict[str, str]],
+            wavetable: Optional[Dict[str, WavetableMetadata]]
     ):
         # Input parameters
         self.in_str = in_str
@@ -228,6 +234,11 @@ class MMKParser:
             'isvol': False, 'ispan': False, 'panscale': Fraction('5/64'), 'vmod': Fraction(1)}
         self.state = self.orig_state.copy()
         self.defines = {}  # type: Dict[str, str]
+
+        # Wavetable parser state
+        self.curr_chan: int = None
+        self.smp_num = 0
+        self.silent_idx: int = None
 
         # File IO
         self.pos = 0
@@ -413,6 +424,15 @@ class MMKParser:
     def put(self, pstr):
         self.out.write(pstr)
 
+    def put_hex(self, *nums):
+        not_first = False
+        for num in nums:
+            if not_first:
+                self.put(' ')
+
+            self.put(to_hex(num))
+            not_first = True
+
     # Begin parsing functions!
     def parse_define(self, command_case, whitespace):
         """ TODO Parse literal define, passthrough. """
@@ -514,22 +534,6 @@ class MMKParser:
         self.skip_until('\n')
 
     # Multi-word parsing
-
-    def parse_tune(self):
-        # "test.brr" $ad $sr $gain $tune $tune
-
-        brr, whitespace = self.get_quoted()
-
-        if self.tuning is None:
-            perr('Cannot use %tune without a tuning file')
-            raise MMKError
-
-        tuning = self.tuning[brr]
-
-        self.put('"{}"{}'.format(brr, whitespace))
-        with self.end_at(any_of(';\n')):
-            self.parse_instruments()  # adsr+gain
-        self.put(' {}'.format(tuning))
 
     def parse_pbend(self, delay, time, note, whitespace):
         # Takes a fraction of a quarter note as input.
@@ -639,7 +643,37 @@ class MMKParser:
             raise MMKError('Invalid ADSR {} {} (must be < {})'.format(caption, val, end))
         return val
 
+    # **** #instruments ****
+
+    def parse_tune(self):
+        self.smp_num += 1
+        # "test.brr" $ad $sr $gain $tune $tune
+
+        brr, whitespace = self.get_quoted()
+
+        if self.tuning is None:
+            perr('Cannot use %tune without a tuning file')
+            raise MMKError
+
+        tuning = self.tuning[brr]
+
+        self.put('"{}"{}'.format(brr, whitespace))
+        with self.end_at(any_of(';\n')):
+            self.parse_instruments()  # adsr+gain
+        self.put(' {}'.format(tuning))
+
+
     # **** Wavetable sweeps ****
+
+    def parse_smp(self):
+        self.smp_num += 1
+
+    def parse_silent(self):
+        self.silent_idx = self.smp_num
+        self.smp_num += 1
+
+    def parse_group(self):
+        self.smp_num += self.get_int()
 
     def parse_wave_group(self, is_instruments: bool):
         name, whitespace = self.get_quoted()
@@ -657,11 +691,22 @@ class MMKParser:
         with self.capture() as output, self.until_comment():
             if is_instruments:
                 self.parse_instruments()
-                self.put(' ' + meta.tuning)
+                self.put(' ' + meta.tuning_str)
+                # *ugh* the instrument's tuning value is basically unused
             else:
-                self.skip_spaces(True, exclude='\n')
+                self.put(self.get_line())
 
             after = output.getvalue()
+            if not is_instruments:  # If samples
+                args = after.split()
+                after = after[len(after.rstrip()):]     # Only keep whitespace
+
+                # print(name, args)
+                for arg in args:
+                    if arg in ['silent']:
+                        setattr(meta, arg, True)
+                    else:
+                        raise MMKError(f'Invalid #samples{{%wave_group}} argument {arg}')
         comments = self.get_line()
         self.skip_chars(1, keep=False)  # remove trailing newline
 
@@ -669,6 +714,10 @@ class MMKParser:
             # eh, missing indentation. who cares.
             self.put(f'"{wave}"{whitespace}{after}{comments}\n')
             comments = ''
+
+        if not is_instruments:  # FIXME
+            meta.smp_idx = self.smp_num
+            self.smp_num += len(waves)
 
     _WAVE_GROUP_TEMPLATE = '{}-{:03}.brr'
 
@@ -695,9 +744,13 @@ class MMKParser:
         ntick_playback = self.get_int()     # The sweep lasts for N ticks
         meta = self.wavetable[name]
 
-        # Ensure wavetable remains at full volume
-        with self.set_input('-1,-1,full,0'):
+        # Load instrument and tuning
+        with self.set_input('-1,-1,full,0  '):
             self.parse_adsr(instr=False)
+        if self.silent_idx is None:
+            raise MMKError('cannot %wave_sweep without silent sample defined')
+        self.put_hex(0xf3, self.silent_idx, meta.tuning)
+        self.put('  ')
 
         # Each note follows a pitch/wave event. It is printed with the
         # proper duration, when the next pitch/wave event begins.
@@ -705,10 +758,11 @@ class MMKParser:
         def print_note():
             nonlocal prev_tick
             if tick > prev_tick:
-                self.put(f'c={tick - prev_tick}')    # TODO pitch
+                self.put(f'c={tick - prev_tick}  ')    # TODO pitch
                 prev_tick = tick
 
         ntick = min(ntick_playback, meta.ntick)
+        wave_idx = 0
         for tick in range(ntick):
             if tick % meta.env_sub == 0:
                 env_idx = tick // meta.env_sub
@@ -722,11 +776,23 @@ class MMKParser:
                 print_note()
 
                 # Print wave
-                wave = self._WAVE_GROUP_TEMPLATE.format(name, wave_idx)
-                self.put(f'("{wave}", {meta.tuning[:3]})')
+                self._put_load_sample(meta.smp_idx + wave_idx)
 
         tick = ntick_playback
+        if meta.silent:
+            smp_idx = self.silent_idx
+        else:
+            smp_idx = meta.smp_idx + wave_idx
+        self._put_load_sample(smp_idx)
         print_note()
+
+    def _get_wave_reg(self):
+        return 0x10 * self.curr_chan + 0x04
+
+    _REG = 0xF6
+    def _put_load_sample(self, smp_idx: int):
+        self.put_hex(self._REG, self._get_wave_reg(), smp_idx)
+        self.put('  ')
 
     # self.state:
     # PAN, VOL, INSTR: str (Remove segments?)
@@ -778,6 +844,11 @@ class MMKParser:
 
                     branch('samples', self.parse_samples)
                     branch('instruments', self.parse_instruments)
+                    if self.peek().isnumeric():
+                        chan = self.get_char()
+                        self.curr_chan = int(chan)
+                        self.put(chan)
+
                     continue
 
                 # Begin custom commands.
@@ -909,7 +980,7 @@ class MMKParser:
             raise  # main() eats MMKError to avoid visual noise
 
     # noinspection PyMethodParameters
-    def _brace_parser_factory(mapping: Dict[str, Callable[['MMKParser'], None]])\
+    def _brace_parser_factory(mapping: Dict[str, Callable[['MMKParser'], None]]) \
             -> Callable:
         def parse(self: 'MMKParser'):
             """
@@ -954,6 +1025,7 @@ class MMKParser:
 
     # noinspection PyArgumentList
     parse_instruments = _brace_parser_factory({
+        'group': lambda self: self.parse_group(),
         'tune': lambda self: self.parse_tune(),
         'gain': lambda self: self.parse_gain(instr=True),
         'adsr': lambda self: self.parse_adsr(instr=True),
@@ -962,6 +1034,8 @@ class MMKParser:
 
     # noinspection PyArgumentList
     parse_samples = _brace_parser_factory({
+        'smp': lambda self: self.parse_smp(),
+        'silent': lambda self: self.parse_silent(),
         'wave_group': lambda self: self.parse_wave_group(is_instruments=False),
     })
 
