@@ -1012,7 +1012,7 @@ class MMKParser:
     # noinspection PyMethodParameters
     def _brace_parser_factory(mapping: Dict[str, Callable[['MMKParser'], None]]) \
             -> Callable:
-        def parse(self: 'MMKParser'):
+        def _parse(self: 'MMKParser'):
             """
             Parses #instruments{...} blocks. Eats trailing close-brace.
             Also used for parsing quoted BRR filenames within #instruments.
@@ -1050,7 +1050,7 @@ class MMKParser:
                 else:
                     self.skip_chars(1, keep=True)
                     self.skip_spaces(True)
-        return parse
+        return _parse
 
 
     # noinspection PyArgumentList
