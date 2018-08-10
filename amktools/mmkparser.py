@@ -427,10 +427,13 @@ class MMKParser:
         return self.get_until(any_of('\n'), strict=False)
 
     # Returns parse (doesn't fetch trailing whitespace)
-    def get_int(self):
+    def get_int(self, maybe=False) -> Optional[int]:
         buffer = ''
         while self.peek().isdigit():
             buffer += self.get_char()
+
+        if not buffer and maybe:
+            return None
         return parse_int_round(buffer)
 
     def put(self, pstr):
@@ -479,8 +482,9 @@ class MMKParser:
 
     def parse_vol(self):
         self.skip_chars(1, keep=False)
-        self.skip_spaces(True)
-        orig_vol = self.get_int()
+        orig_vol = self.get_int(maybe=True)
+        if orig_vol is None:
+            return
 
         self.state['vol'] = self.calc_vol(orig_vol)
         self.put('v' + self.state['vol'])
@@ -513,8 +517,9 @@ class MMKParser:
 
     def parse_pan(self):
         self.skip_chars(1, keep=False)
-        self.skip_spaces(True)
-        orig_pan = self.get_int()
+        orig_pan = self.get_int(maybe=True)
+        if orig_pan is None:
+            return
 
         self.state['pan'] = self.calc_pan(orig_pan)
         # Pass the command through.
