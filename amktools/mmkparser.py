@@ -243,7 +243,8 @@ class MMKParser:
         self.defines = dict(
             viboff='$DF',
             tremoff='$E5 $00 $00 $00',
-            legato='$F4 $01',
+            slur='$F4 $01',
+            light='$F4 $02',
             restore_instr='$F4 $09'
         )  # type: Dict[str, str]
 
@@ -822,7 +823,7 @@ class MMKParser:
         return wave_names
 
     DETUNE = 0xEE
-    LEGATO = '$F4 $01  '
+    SLUR = '$F4 $01  '
     def parse_wave_sweep(self):
         """ Print a wavetable sweep. """
         name, _ = self.get_quoted()
@@ -835,7 +836,7 @@ class MMKParser:
             raise MMKError('cannot %wave_sweep without silent sample defined')
         self.put_hex(0xf3, self.silent_idx, meta.tuning)
         self.put('  ')
-        self.put(self.LEGATO)   # Legato glues right+2, and unglues left+right.
+        self.put(self.SLUR)   # Legato glues right+2, and unglues left+right.
 
         # Pitch tracking
         midi = 0   # MIDI
@@ -883,7 +884,7 @@ class MMKParser:
             tick = ntick_note
             print_note()
 
-        self.put(self.LEGATO)   # Legato deactivates immediately.
+        self.put(self.SLUR)   # Legato deactivates immediately.
         self.put_hex(self.DETUNE, 0)
 
     def _get_wave_reg(self):
