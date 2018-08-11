@@ -17,7 +17,10 @@ def note2pitch(note, cents=0):
 
 def brr_tune(sample: _ISample, ratio):
     ratio = Fraction(ratio)
-    freq = note2pitch(sample.original_pitch, sample.pitch_correction)
+
+    # If a sample is played back N cents flats, the sample is N cents sharp.
+    pitch_error = -sample.pitch_correction
+    freq = note2pitch(sample.original_pitch, pitch_error)
     # Absolute frequencies unsupported. (original_pitch is correct in DS Rainbow Road percussion)
 
     N = (sample.sample_rate * ratio) / freq / 16
