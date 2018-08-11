@@ -190,7 +190,7 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
     cfg_prefix = os.path.splitext(cfg_path)[0]      # folder/cfg
     cfg_fname = os.path.basename(cfg_prefix)        # cfg
 
-    if opt.verbose: print('~~~~~', cfg_prefix, '~~~~')
+    print('~~~~~', cfg_prefix, '~~~~')
 
     try:
         with open(cfg_path) as cfgfile:
@@ -238,6 +238,7 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
             loop = sample.start_loop
             truncate = sample.end_loop
 
+        print(f'MIDI {sample.original_pitch}, detune {sample.pitch_correction} cents')
 
         # Convert sample.
 
@@ -256,7 +257,7 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
         tune = tuning.brr_tune(sample, ratio)[1]
         print(cfg_fname, tune)
 
-        if opt.verbose: print()
+        print()
 
         return cfg_fname + BRR_EXT, tune
 
@@ -374,12 +375,6 @@ class Converter:
         if opt.verbose:
             print('brr_encoder', ' '.join(args))
             print(output)
-
-        if str(output).find('Caution : Wrapping was used.') != -1:
-            if not opt.verbose: print(output)
-            # If NOWRAP is True, this should never happen.
-            assert not NOWRAP
-            raise Exception('Wrapping detected!!')
 
         if is_loop:
             loop_idx = int(search(loop_regex, output))
