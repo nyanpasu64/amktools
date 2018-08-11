@@ -254,9 +254,10 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
         sample.sample_rate = rate or conv.rate
 
         if resamp:
+            # Based off WAV sample rate (conv.rate), not override!
             if ratio != 1:
                 raise ValueError('Cannot specify both `resamp` and `ratio`')
-            ratio = Fraction(resamp, sample.sample_rate)
+            ratio = Fraction(resamp, conv.rate)
         else:
             ratio = Fraction(ratio)
         ratio = conv.convert(ratio=ratio, loop=loop, truncate=truncate, volume=volume, decode=True)
