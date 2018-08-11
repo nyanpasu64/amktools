@@ -151,9 +151,9 @@ def parse_frac(infrac):
 
 
 def to_hex(in_frac):
-    if not (0 <= in_frac < 0x100):
+    if not (-0x80 <= in_frac < 0x100):
         raise ValueError(f'Passed invalid {type(in_frac)} {in_frac} to int2hex')
-    value = '$%02x' % int(in_frac)
+    value = '$%02x' % int(in_frac % 0x100)
     return value
 
 
@@ -417,6 +417,9 @@ class MMKParser:
         skipped = self.get_spaces(exclude)
         if keep:
             self.put(skipped)
+
+    def get_line_spaces(self):
+        return self.get_spaces(exclude='\n')
 
 
     def get_quoted(self):
@@ -894,6 +897,18 @@ class MMKParser:
     def _put_load_sample(self, smp_idx: int):
         self.put_hex(self._REG, self._get_wave_reg(), smp_idx)
 
+    # Echo and FIR
+
+    def parse_fir(self):
+        # params = []
+        *params, _whitespace = self.get_phrase(8)
+        params = [parse_int_hex(param) for param in params]
+            # params.append(self.get_int())
+            # _whitespace = self.get_line_spaces()
+
+        self.put('$F5 ')
+        self.put_hex(*params)
+
     # self.state:
     # PAN, VOL, INSTR: str (Remove segments?)
     # PANSCALE: Fraction (5/64)
@@ -1020,6 +1035,11 @@ class MMKParser:
                     # Wavetable sweep
                     if command == 'wave_sweep':
                         self.parse_wave_sweep()
+                        continue
+
+                    # Echo and FIR
+                    if command == 'fir':
+                        self.parse_fir()
                         continue
 
                     # ONE ARGUMENT
