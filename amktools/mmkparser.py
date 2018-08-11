@@ -1108,6 +1108,10 @@ class MMKParser:
                     self.skip_spaces(True, exclude='\n')
                     return
 
+                if char == ';':
+                    self.parse_comment()
+                    continue
+
                 if char == '%':
                     self.skip_chars(1, False)
 
