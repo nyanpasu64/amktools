@@ -228,6 +228,9 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
                 loop = cfg['loop']
             if 'truncate' in cfg:
                 truncate = cfg['truncate']
+        elif sample.start_loop == sample.end_loop:  # both 0 in vgmtrans sf2
+            loop = None
+            truncate = None
         else:
             loop = sample.start_loop
             truncate = sample.end_loop
