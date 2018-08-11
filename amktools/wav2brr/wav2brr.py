@@ -225,7 +225,7 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
         if transpose:
             sample.original_pitch -= transpose
 
-        if detune:
+        if detune is not None:
             sample.pitch_correction = detune
 
         if at is not None:
