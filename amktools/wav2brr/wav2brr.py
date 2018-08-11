@@ -196,9 +196,14 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
         with open(cfg_path) as cfgfile:
             cfg = AttrDict(eval(cfgfile.read()))
 
-        rate = cfg.get('rate', None)    # sampling rate
+        # Input WAV rate
+        rate = cfg.get('rate', None)    # Input WAV sampling rate
+        detune = cfg.get('detune', None)
+
+        # Resampling
         ratio = cfg.get('ratio', 1)
         resamp = cfg.get('resamp', None)
+
         volume = cfg.get('volume', 1)
         transpose = cfg.get('transpose', 0)
         at = cfg.get('at', None)  # MIDI pitch of original note
@@ -220,6 +225,9 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
         if transpose:
             sample.original_pitch -= transpose
 
+        if detune:
+            sample.pitch_correction = detune
+
         if at is not None:
             sample.original_pitch = at
 
@@ -238,7 +246,7 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
             loop = sample.start_loop
             truncate = sample.end_loop
 
-        print(f'MIDI {sample.original_pitch}, detune {sample.pitch_correction} cents')
+        print(f'MIDI at={sample.original_pitch}, detune={sample.pitch_correction} cents')
 
         # Convert sample.
 
