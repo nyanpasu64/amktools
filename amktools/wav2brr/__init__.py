@@ -197,6 +197,7 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
 
         rate = cfg.get('rate', None)    # sampling rate
         ratio = cfg.get('ratio', 1)
+        resamp = cfg.get('resamp', None)
         volume = cfg.get('volume', 1)
         transpose = cfg.get('transpose', 0)
         at = cfg.get('at', None)  # MIDI pitch of original note
@@ -237,7 +238,12 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
         conv = Converter(opt, cfg_prefix, transpose=transpose)
         sample.sample_rate = rate or conv.rate
 
-        ratio = Fraction(ratio)
+        if resamp:
+            if ratio != 1:
+                raise ValueError('Cannot specify both `resamp` and `ratio`')
+            ratio = Fraction(resamp, sample.sample_rate)
+        else:
+            ratio = Fraction(ratio)
         ratio = conv.convert(ratio=ratio, loop=loop, truncate=truncate, volume=volume, decode=True)
         shutil.copy(conv.brrname, opt.sample_folder)
 
