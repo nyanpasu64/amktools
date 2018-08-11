@@ -196,6 +196,8 @@ def none_of(chars) -> Pattern:
 
 
 def parse_time(word: str) -> Fraction:
+    if word[0] == '=':
+        return Fraction(word[1:])
     return parse_frac(word) * QUARTER_TO_TICKS
 
 
