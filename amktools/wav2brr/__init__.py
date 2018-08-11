@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import logging
+import math
 import os
 import re
 import shutil
@@ -218,6 +219,16 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
 
         if at is not None:
             sample.original_pitch = at
+
+            # assert -99 <= sample.pitch_correction <= 99
+                # not true in vgmtrans
+
+            p = sample.pitch_correction
+            print(sample.pitch_correction)
+            sample.pitch_correction -= math.copysign(abs(p) // 100 * 100, p)
+            print(sample.pitch_correction)
+            assert -99 <= sample.pitch_correction <= 99
+
             # sample.pitch_correction = 0
 
         # Loop sample.
