@@ -506,13 +506,13 @@ class MMKParser:
         return str(round(vol))
 
     def parse_vol(self):
-        self.skip_chars(1, keep=False)
+        self.skip_chars(1, keep=True)
         orig_vol = self.get_int(maybe=True)
         if orig_vol is None:
             return
 
         self.state.v = self.calc_vol(orig_vol)
-        self.put('v' + self.state.v)
+        self.put(self.state.v)
 
     def parse_vol_hex(self, arg):
         # This both returns the volume and modifies state.
@@ -560,14 +560,14 @@ class MMKParser:
             return str(orig_pan)
 
     def parse_pan(self):
-        self.skip_chars(1, keep=False)
+        self.skip_chars(1, keep=True)
         orig_pan = self.get_int(maybe=True)
         if orig_pan is None:
             return
 
         self.state.y = self.calc_pan(orig_pan)
         # Pass the command through.
-        self.put('y' + self.state.y)
+        self.put(self.state.y)
 
     def parse_ybend(self, duration, pan):
         duration_hex = to_hex(parse_time(duration))
