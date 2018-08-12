@@ -151,9 +151,10 @@ def parse_frac(infrac):
 
 
 def to_hex(in_frac):
+    in_frac = int(in_frac)
     if not (-0x80 <= in_frac < 0x100):
         raise ValueError(f'Passed invalid {type(in_frac)} {in_frac} to int2hex')
-    value = '$%02x' % int(in_frac % 0x100)
+    value = '$%02x' % (in_frac % 0x100)
     return value
 
 
