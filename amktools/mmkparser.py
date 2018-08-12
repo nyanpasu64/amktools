@@ -5,6 +5,7 @@
 # Released under the WTFPL
 
 import argparse
+import copy
 import os
 import re
 import sys
@@ -12,7 +13,7 @@ from contextlib import contextmanager
 from fractions import Fraction
 from io import StringIO
 from pathlib import Path
-from typing import Dict, List, Union, Pattern, Tuple, Callable, Optional
+from typing import Dict, List, Union, Pattern, Tuple, Callable, Optional, ClassVar
 
 from dataclasses import dataclass, field
 from ruamel.yaml import YAML
@@ -224,6 +225,19 @@ class WavetableMetadata:
         self.tuning_str = '$%02x $00' % self.tuning
 
 
+@dataclass
+class MMKState:
+    isvol: bool = False
+    ispan: bool = False
+    panscale: Fraction = Fraction('5/64')
+    vmod: Fraction = Fraction(1)
+
+    v: Optional[str] = None
+    y: str = '10'
+
+    keys: ClassVar = ['v', 'y']
+
+
 class MMKParser:
     SHEBANG = '%mmk0.1'
     FIRST_INSTRUMENT = 30
@@ -240,9 +254,8 @@ class MMKParser:
         self.wavetable = wavetable
 
         # Parser state
-        self.orig_state = {
-            'isvol': False, 'ispan': False, 'panscale': Fraction('5/64'), 'vmod': Fraction(1)}
-        self.state = self.orig_state.copy()
+        self.orig_state = MMKState()
+        self.state = copy.copy(self.orig_state)
         self.defines = dict(
             viboff='$DF',
             tremoff='$E5 $00 $00 $00',
@@ -486,9 +499,9 @@ class MMKParser:
 
     def calc_vol(self, in_vol):
         vol = parse_frac(in_vol)
-        vol *= self.state['vmod']
+        vol *= self.state.vmod
 
-        if self.state['isvol']:
+        if self.state.isvol:
             vol *= 2
         return str(round(vol))
 
@@ -498,13 +511,15 @@ class MMKParser:
         if orig_vol is None:
             return
 
-        self.state['vol'] = self.calc_vol(orig_vol)
-        self.put('v' + self.state['vol'])
+        self.state.v = self.calc_vol(orig_vol)
+        self.put('v' + self.state.v)
 
     def parse_vol_hex(self, arg):
         # This both returns the volume and modifies state.
         # Time to throw away state?
-        new_vol = self.state['vol'] = self.calc_vol(arg)    # type: str
+        assert self.state is not self.orig_state
+
+        new_vol = self.state.v = self.calc_vol(arg)    # type: str
         hex_vol = to_hex(new_vol)
         return hex_vol
 
@@ -516,13 +531,30 @@ class MMKParser:
 
         self.put('$E8 {} {}{}'.format(time_hex, vol_hex, whitespace))
 
+    def parse_save(self):
+        assert self.state is not self.orig_state
+        self.orig_state = copy.copy(self.state)
+        assert self.state is not self.orig_state
+
+    def parse_restore(self):
+        assert self.state is not self.orig_state
+
+        for key in MMKState.keys:
+            old = getattr(self.orig_state, key)
+            new = getattr(self.state, key)
+            if old != new:
+                self.put(key + old)
+        self.state = copy.copy(self.orig_state)
+
+        assert self.state is not self.orig_state
+
     # **** pan ****
 
     def calc_pan(self, orig_pan):
         # Convert panning
-        if self.state['ispan']:
+        if self.state.ispan:
             zeroed_pan = parse_frac(orig_pan) - 64
-            scaled_pan = zeroed_pan * self.state['panscale']
+            scaled_pan = zeroed_pan * self.state.panscale
             return str(round(scaled_pan + 10))
         else:
             return str(orig_pan)
@@ -533,14 +565,14 @@ class MMKParser:
         if orig_pan is None:
             return
 
-        self.state['pan'] = self.calc_pan(orig_pan)
+        self.state.y = self.calc_pan(orig_pan)
         # Pass the command through.
-        self.put('y' + self.state['pan'])
+        self.put('y' + self.state.y)
 
     def parse_ybend(self, duration, pan):
         duration_hex = to_hex(parse_time(duration))
-        self.state['pan'] = self.calc_pan(pan)
-        pan_hex = to_hex(self.state['pan'])
+        self.state.y = self.calc_pan(pan)
+        pan_hex = to_hex(self.state.y)
 
         self.put('$DC {} {}'.format(duration_hex, pan_hex))
 
@@ -998,30 +1030,35 @@ class MMKParser:
                         continue
 
                     if command == 'reset':
-                        self.state = self.orig_state.copy()
-                        continue
-
-                    if command == 'passthrough':
-                        self.state['currseg'] = -1
+                        self.state = copy.copy(self.orig_state)
+                        assert self.state is not self.orig_state
                         continue
 
                     if command == 'isvol':
-                        self.state['isvol'] = True
+                        self.state.isvol = True
                         continue
 
                     if command == 'ispan':
-                        self.state['ispan'] = True
+                        self.state.ispan = True
                         continue
 
                     if command == 'notvol':
-                        self.state['isvol'] = False
+                        self.state.isvol = False
                         continue
 
                     if command == 'notpan':
-                        self.state['ispan'] = False
+                        self.state.ispan = False
                         continue
 
                     # N ARGUMENTS
+
+                    if command == 'save':
+                        self.parse_save()
+                        continue
+
+                    if command == 'restore':
+                        self.parse_restore()
+                        continue
 
                     if command in ['t', 'transpose']:
                         self.parse_transpose()
@@ -1049,7 +1086,7 @@ class MMKParser:
                     arg, whitespace = self.get_word()
 
                     if command == 'vmod':
-                        self.state['vmod'] = parse_frac(arg)
+                        self.state.vmod = parse_frac(arg)
                         continue
 
                     # 2 ARGUMENTS
