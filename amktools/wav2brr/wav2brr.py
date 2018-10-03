@@ -291,8 +291,10 @@ def decimal_repr(num):
 def pushd(new_dir: Union[Path, str]):
     previous_dir = os.getcwd()
     os.chdir(str(new_dir))
-    yield
-    os.chdir(previous_dir)
+    try:
+        yield
+    finally:
+        os.chdir(previous_dir)
 
 
 loop_regex = re.compile(
