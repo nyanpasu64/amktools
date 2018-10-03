@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
+import click
 import ctypes
 import logging
 import os
+import plumbum
 import re
 import shutil
 import sys
@@ -10,13 +12,12 @@ from contextlib import contextmanager
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
-from typing import List, Dict, IO, Optional
-from typing import NamedTuple, Union
-
-import click
+from plumbum import local
 from ruamel.yaml import YAML
 from sf2utils.sample import Sf2Sample
 from sf2utils.sf2parse import Sf2File
+from typing import List, Dict, IO, Optional
+from typing import NamedTuple, Union
 
 from amktools import common
 from amktools.wav2brr import tuning
@@ -35,14 +36,18 @@ if getattr(sys, 'frozen', False):
 else:
     app_path = Path(__file__).parent    # python -m
 
-path_prepend(app_path / 'exe')
+prefix = app_path / 'exe'
 # os.getcwd() removed, since my bundled version of brr_encoder fixes wrapping
 # and we don't want to call old versions ever.
 
+e = str(prefix / 'brr_encoder.exe')
+d = str(prefix / 'brr_decoder.exe')
 
-from plumbum import local
-brr_encoder = local['brr_encoder']
-brr_decoder = local['brr_decoder']
+if os.name != 'nt':
+    local = local['wine']
+
+brr_encoder = local[e]
+brr_decoder = local[d]
 
 yaml = YAML(typ='safe')
 logging.root.setLevel(logging.ERROR)  # to silence overly pedantic SF2File
