@@ -383,7 +383,7 @@ class Converter:
 
         # Attenuate volume
         if volume != 1:
-            args[:0] = ['-a' + decimal_repr(volume)]
+            args[:0] = ['-a' + decimal_repr(volume ** 2)]
 
         # **** Call brr_encoder ****
         output = brr_encoder[args]().replace('\r', '')
