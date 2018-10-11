@@ -160,26 +160,29 @@ def main(wav_folder: Path, amk_folder: Path, sample_subfolder: Path,
         wav2brr_dir = Path(WAV2BRR_DIRNAME)
         wav2brr_dir.mkdir(parents=True, exist_ok=True)
 
-        p = Path()
+        pwd = Path()
 
-        # TODO Input folders: Current, plus all subdirs not starting with ~
-        folders = sorted(x for x in p.iterdir()
-                         if x.is_dir() and '~' not in x.name)
+        # Input folders: Current, plus all subdirs not starting with ~
+        folders = [pwd] + sorted(x for x in pwd.iterdir()
+                                    if x.is_dir() and '~' not in x.name)
 
         for folder in folders:
             cfgs = sorted(x for x in folder.glob('*.cfg') if '~' not in x.name)
-            if len(cfgs) != 1:
+
+            # Subfolders must contain exactly one .cfg each.
+            if folder != pwd and len(cfgs) != 1:
                 fnames = [cfg.name for cfg in cfgs]
                 raise ValueError(
                     'folder "{}" must contain one .cfg, currently contains {}'
                         .format(folder, fnames)
                 )
 
-            cfg_path = str(cfgs[0]).replace('\\', '/')
+            for cfg in cfgs:
+                cfg_path = str(cfg).replace('\\', '/')
 
-            # Create .brr, decode to .wav
-            name, tune = convert_cfg(opt, cfg_path, wav2brr_dir, name2sample)
-            tunings[name] = tune
+                # Create .brr, decode to .wav
+                name, tune = convert_cfg(opt, cfg_path, wav2brr_dir, name2sample)
+                tunings[name] = tune
 
         # Copy over .brr files directly
         for brr in BRR_SOURCE.glob('*.brr'):
