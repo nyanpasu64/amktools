@@ -360,7 +360,12 @@ class Converter:
         """
         opt = self.opt
 
-        args = ['-g', self.wavname, self.brrname]
+        args = []
+
+        if True:
+            args += ['-g']
+
+        args += [self.wavname, self.brrname]
 
         if NOWRAP:  # always true
             args[0:0] = ['-w']
@@ -417,7 +422,9 @@ class Converter:
         opt = self.opt
 
         rate = self.get_rate() * ratio * note2ratio(self.transpose)
-        args = ['-g', '-s' + decimal_repr(rate), self.brrname,
+        args = [
+            # '-g',
+            '-s' + decimal_repr(rate), self.brrname,
                 self.name + ' decoded.wav']
         if loop_idx is not None:
             args[:0] = ['-l{}'.format(loop_idx), '-n{}'.format(opt.decode_loops)]
