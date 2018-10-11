@@ -798,6 +798,13 @@ class MMKParser:
         self.smp_num += self.get_int()
 
     def parse_wave_group(self, is_instruments: bool):
+        """
+        #samples {
+        %wave_group "name" [ntick_playback] [silent|...]
+
+        #instruments {
+        %wave_group "0" %adsr -1,-1,-1,0
+        """
         name, whitespace = self.get_quoted()
         ntick_playback = None
 
