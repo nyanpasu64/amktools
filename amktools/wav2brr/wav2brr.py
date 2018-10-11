@@ -96,7 +96,6 @@ BACKUP_ROOT = Path('wav2brr backups')
 BRR_SOURCE = Path('~brr')
 
 
-# TODO docs
 @click.command()
 @click.argument('wav_folder', type=Folder, callback=pathify)
 @click.argument('amk_folder', type=Folder, callback=pathify)
@@ -141,7 +140,6 @@ def main(wav_folder: Path, amk_folder: Path, sample_subfolder: Path,
         name2sample = {}
 
     # Clear old samples
-
     with pushd(sample_folder):
         # BRR_BACKUP
         backup_root = BACKUP_ROOT
@@ -156,11 +154,15 @@ def main(wav_folder: Path, amk_folder: Path, sample_subfolder: Path,
                 rm_recursive(backup_dest, optional=True)
                 old.rename(backup_dest)
 
-    # Create new samples
-
+    # Find all .cfg files, call convert_cfg()
     tunings = {}
     with pushd(wav_folder):
+        wav2brr_dir = Path(WAV2BRR_DIRNAME)
+        wav2brr_dir.mkdir(parents=True, exist_ok=True)
+
         p = Path()
+
+        # TODO Input folders: Current, plus all subdirs not starting with ~
         folders = sorted(x for x in p.iterdir()
                          if x.is_dir() and '~' not in x.name)
 
@@ -174,7 +176,9 @@ def main(wav_folder: Path, amk_folder: Path, sample_subfolder: Path,
                 )
 
             cfg_path = str(cfgs[0]).replace('\\', '/')
-            name, tune = convert_cfg(opt, cfg_path, name2sample)
+
+            # Create .brr, decode to .wav
+            name, tune = convert_cfg(opt, cfg_path, wav2brr_dir, name2sample)
             tunings[name] = tune
 
         # Copy over .brr files directly
@@ -187,8 +191,9 @@ def main(wav_folder: Path, amk_folder: Path, sample_subfolder: Path,
 
 
 # **** .cfg file parsing ****
+# Design: cwd == wav_folder. Subfolders are relative to Path().
 
-def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sample]'):
+def convert_cfg(opt: CliOptions, cfg_path: str, wav2brr_dir: Path, name2sample: 'Dict[str, Sf2Sample]'):
     """
     :return: (Path to BRR file, tuning string)
     """
@@ -255,7 +260,7 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
 
         # Convert sample.
 
-        conv = Converter(opt, cfg_prefix, transpose=transpose)
+        conv = Converter(opt, cfg_prefix, wav2brr_dir, transpose=transpose)
         sample.sample_rate = rate or conv.rate
 
         if resamp:
@@ -266,7 +271,7 @@ def convert_cfg(opt: CliOptions, cfg_path: str, name2sample: 'Dict[str, Sf2Sampl
         else:
             ratio = Fraction(ratio)
         ratio = conv.convert(ratio=ratio, loop=loop, truncate=truncate, volume=volume, decode=True)
-        shutil.copy(conv.brrname, opt.sample_folder)
+        shutil.copy(conv.brr_path, opt.sample_folder)
 
         tune = tuning.brr_tune(sample, ratio)[1]
         print(cfg_fname, tune)
@@ -317,12 +322,13 @@ def search(regex, s):
 
 WAV_EXT = '.wav'
 BRR_EXT = '.brr'
+WAV2BRR_DIRNAME = '~wav2brr'
 
 NOWRAP = True
 
 # TODO: "name" actually means "file path minus extension".
 class Converter:
-    def __init__(self, opt: CliOptions, name, transpose=0):
+    def __init__(self, opt: CliOptions, name: str, wav2brr_dir: Path, transpose=0):
         """
         :param opt: Command-line options (including .brr output paths),
             shared across samples.
@@ -330,13 +336,16 @@ class Converter:
         :param transpose: Semitones to transpose (can be float)
         """
         self.opt = opt
+        self.wav2brr_dir = wav2brr_dir
 
-        self.name = name
-        self.wavname = name + WAV_EXT
-        self.brrname = name + BRR_EXT
+        # .brr and decoded .wav are written to an intermediate folder.
+        self.stem = Path(name).stem
+
+        self.wav_path = name + WAV_EXT
+        self.brr_path = str(self.wav2brr_dir / (self.stem + BRR_EXT))
         self.transpose = transpose
 
-        w = wave.open(self.wavname)
+        w = wave.open(self.wav_path)
         self.rate = w.getframerate()
         self.len = w.getnframes()
 
@@ -350,7 +359,7 @@ class Converter:
     def convert(self, ratio: Fraction, loop: Optional[int], truncate: Optional[int],
                 volume: Fraction, decode: bool) -> Fraction:
         """
-        Convert self.wavname to self.brrname, resampling by ratio.
+        Convert self.wav_path to self.brr_path, resampling by ratio.
         :param ratio: Resampling ratio.
         :param loop: Loop begin point.
         :param truncate: End of sample (loop end point).
@@ -365,7 +374,7 @@ class Converter:
         if True:
             args += ['-g']
 
-        args += [self.wavname, self.brrname]
+        args += [self.wav_path, self.brr_path]
 
         if NOWRAP:  # always true
             args[0:0] = ['-w']
@@ -410,10 +419,10 @@ class Converter:
         if decode:
             self.decode(wav2brr_ratio, loop_idx if is_loop else None)
 
-        with open(self.brrname, 'r+b') as brr_file:
+        with open(self.brr_path, 'r+b') as brr_file:
             data = byte_offset.to_bytes(2, 'little') + brr_file.read()
 
-        with open(self.brrname, 'wb') as brr_file:
+        with open(self.brr_path, 'wb') as brr_file:
             brr_file.write(data)
 
         return wav2brr_ratio
@@ -422,10 +431,12 @@ class Converter:
         opt = self.opt
 
         rate = self.get_rate() * ratio * note2ratio(self.transpose)
+        decoded_path = str(self.wav2brr_dir / (self.stem + ' decoded.wav'))
         args = [
-            # '-g',
-            '-s' + decimal_repr(rate), self.brrname,
-                self.name + ' decoded.wav']
+            '-s' + decimal_repr(rate),
+            self.brr_path,
+            decoded_path
+        ]
         if loop_idx is not None:
             args[:0] = ['-l{}'.format(loop_idx), '-n{}'.format(opt.decode_loops)]
         decode_output = brr_decoder[args]()
