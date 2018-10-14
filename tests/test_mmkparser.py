@@ -31,7 +31,7 @@ yaml = YAML(typ='safe')
 tuning = yaml.load(r'test.brr: $F0 $0F')
 
 
-# Functionality
+# MMKParser file path tests
 
 
 def test_constants() -> None:
@@ -75,6 +75,9 @@ def test_extension(mocker) -> None:
                 assert f.read() == parse_output
 
 
+# Input string processing
+
+
 def test_define():
     in_str = '''\
 ;
@@ -105,6 +108,47 @@ def test_define_failed():
 
 
 v1
+'''
+
+
+def test_notelen():
+    in_str = '''\
+c4 c2 c1 c=48
+%notelen on
+
+; All notes/etc with durations.
+c1 d1 e1 f1 g1 a1 b1 r1 ^1
+
+; default length command
+l1 c
+
+c1c2c4c5
+c/2c/3c/4c/6c/8 c/48
+c2/3c3/4 c47/48
+c=47
+
+%notelen off
+c4 c2 c1 c=48
+'''
+    p = mmkparser.MMKParser(in_str, tuning)
+    outstr = p.parse()
+    assert outstr == '''\
+c4 c2 c1 c=48
+
+
+; All notes/etc with durations.
+c4 d4 e4 f4 g4 a4 b4 r4 ^4
+
+; default length command
+l4 c
+
+c4c2c1c=240
+c8c12c16c24c32 c192
+c6c=36 c=47
+c=47
+
+
+c4 c2 c1 c=48
 '''
 
 
