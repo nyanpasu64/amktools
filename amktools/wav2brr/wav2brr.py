@@ -220,6 +220,10 @@ def convert_cfg(opt: CliOptions, cfg_path: str, wav2brr_dir: Path, name2sample: 
         volume = cfg.get('volume', 1)
         transpose = cfg.get('transpose', 0)
         at = cfg.get('at', None)  # MIDI pitch of original note
+
+        # Exact AMK tuning (wavelength in 16-sample units)
+        tuning_ = cfg.get('tuning', None)
+
         # Load resampling settings.
 
         if cfg_fname in name2sample:
@@ -243,6 +247,7 @@ def convert_cfg(opt: CliOptions, cfg_path: str, wav2brr_dir: Path, name2sample: 
 
         if at is not None:
             sample.original_pitch = at
+
 
         # Loop sample.
         # this is fucking fizzbuzz
@@ -276,7 +281,7 @@ def convert_cfg(opt: CliOptions, cfg_path: str, wav2brr_dir: Path, name2sample: 
         ratio = conv.convert(ratio=ratio, loop=loop, truncate=truncate, volume=volume, decode=True)
         shutil.copy(conv.brr_path, opt.sample_folder)
 
-        tune = tuning.brr_tune(sample, ratio)[1]
+        tune = tuning.brr_tune(sample, ratio, tuning_)[1]
         print(cfg_fname, tune)
 
         print()

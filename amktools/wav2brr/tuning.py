@@ -1,4 +1,5 @@
 from fractions import Fraction
+from typing import Optional
 
 from amktools.wav2brr.util import ISample as _ISample
 
@@ -15,15 +16,29 @@ def note2pitch(note, cents=0):
     return freq
 
 
-def brr_tune(sample: _ISample, ratio):
+def brr_tune(sample: _ISample, ratio, tuning: Optional[float]):
     ratio = Fraction(ratio)
 
-    # If a sample is played back N cents flats, the sample is N cents sharp.
-    pitch_error = -sample.pitch_correction
-    freq = note2pitch(sample.original_pitch, pitch_error)
-    # Absolute frequencies unsupported. (original_pitch is correct in DS Rainbow Road percussion)
+    if tuning is not None:
+        tuning = tuning * ratio
+    else:
+        # If a sample is played back N cents flats, the sample is N cents sharp.
+        pitch_error = -sample.pitch_correction
 
-    N = (sample.sample_rate * ratio) / freq / 16
-    tuning = round(N * 256)
-    tuneStr = '$%02x $%02x' % (tuning // 256, tuning % 256)
-    return sample.name, tuneStr
+        # Note frequency
+        cyc_s = note2pitch(sample.original_pitch, pitch_error)
+        # Absolute frequencies unsupported. (original_pitch is correct in DS Rainbow Road percussion)
+
+        # Sampling rate
+        smp_s = sample.sample_rate * ratio
+
+        # Period nsamp
+        smp_cyc = smp_s / cyc_s
+
+        tuning = smp_cyc / 16
+
+    # 8.8 fixed-point value = 256*tuning + fraction
+    tuning_int = round(tuning * 256)
+
+    tune_str = '$%02x $%02x' % (tuning_int // 256, tuning_int % 256)
+    return sample.name, tune_str
