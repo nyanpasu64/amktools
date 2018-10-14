@@ -1179,7 +1179,7 @@ class MMKParser:
                     self.parse_comment()
                     continue
 
-                if char == '%':
+                elif char == '%':
                     self.skip_chars(1, False)
 
                     command_case, whitespace = self.get_word()
