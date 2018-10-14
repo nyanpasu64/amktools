@@ -22,7 +22,7 @@ def brr_tune(
         brr_result: 'BrrResult',
         tuning: Optional[float],
         ncyc: Optional[float],
-):
+) -> Optional[str]:
     if tuning is not None:
         tuning = tuning * brr_result.ratio
     else:
@@ -43,6 +43,8 @@ def brr_tune(
 
             # Period nsamp
             smp_cyc = smp_s / cyc_s
+        else:
+            return None
 
         tuning = smp_cyc / 16
 
@@ -50,4 +52,4 @@ def brr_tune(
     tuning_int = round(tuning * 256)
 
     tune_str = '$%02x $%02x' % (tuning_int // 256, tuning_int % 256)
-    return sample.name, tune_str
+    return tune_str

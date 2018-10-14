@@ -284,7 +284,7 @@ def convert_cfg(opt: CliOptions, cfg_path: str, wav2brr_dir: Path, name2sample: 
         brr_result = conv.convert(ratio=ratio, loop=loop, truncate=truncate, volume=volume, decode=True)
         shutil.copy(conv.brr_path, opt.sample_folder)
 
-        tune = tuning.brr_tune(sample, brr_result, tuning_, ncyc)[1]
+        tune = tuning.brr_tune(sample, brr_result, tuning_, ncyc)
         print(cfg_fname, tune)
 
         print()
