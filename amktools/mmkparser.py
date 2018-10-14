@@ -229,6 +229,7 @@ class WavetableMetadata:
 class MMKState:
     isvol: bool = False
     ispan: bool = False
+    is_notelen: bool = False
     panscale: Fraction = Fraction('5/64')
     vmod: Fraction = Fraction(1)
 
@@ -482,6 +483,26 @@ class MMKParser:
             return True
         return False
 
+    # **** Numerator-fraction note lengths ****
+
+    WORD_TO_BOOL = dict(
+        on=True,
+        off=False,
+        true=True,
+        false=False
+    )
+
+    def parse_toggle_notelen(self):
+        word, _ = self.get_word()
+        try:
+            state = self.WORD_TO_BOOL[word]
+        except KeyError:
+            raise MMKError(
+                f"invalid %notelen value {word}, expected {self.WORD_TO_BOOL.keys()}"
+            )
+
+        self.state.is_notelen = state
+
     # **** Transpose ****
 
     def parse_transpose(self) -> None:
@@ -530,6 +551,8 @@ class MMKParser:
         vol_hex = self.parse_vol_hex(vol)
 
         self.put('$E8 {} {}{}'.format(time_hex, vol_hex, whitespace))
+
+    # Save/restore state
 
     def parse_save(self):
         assert self.state is not self.orig_state
@@ -1055,6 +1078,9 @@ class MMKParser:
                     if command == 'notpan':
                         self.state.ispan = False
                         continue
+
+                    if command == 'notelen':
+                        self.parse_toggle_notelen()
 
                     # N ARGUMENTS
 
