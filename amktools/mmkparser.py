@@ -979,44 +979,43 @@ class MMKParser:
                 # Parse the no-argument default commands.
                 if char == 'v':
                     self.parse_vol()
-                    continue
 
-                if char == 'y':
+                elif char == 'y':
                     self.parse_pan()
-                    continue
 
-                if char == ';':
+                elif char == ';':
                     self.parse_comment()
-                    continue
 
-                if char == '#':  # instruments{}
+                elif char == '#':  # instruments{}
                     self.skip_chars(1, keep=True)
                     self.skip_spaces(True)
 
+                    ret = False
+
                     def branch(keyword: str, method: Callable):
+                        nonlocal ret
                         if self.in_str.startswith(keyword, self.pos):
                             self.skip_until('{')
                             self.skip_chars(1, keep=True)
                             method()
+                            ret = True
 
                     branch('samples', self.parse_samples)
                     branch('instruments', self.parse_instruments)
-                    if self.peek().isnumeric():
+                    if not ret and self.peek().isnumeric():
                         chan = self.get_char()
                         self.curr_chan = int(chan)
                         self.put(chan)
 
-                    continue
 
-                if char == '(':
+                elif char == '(':
                     self.skip_chars(1, keep=True)
                     if self.peek() == '!':
                         self.skip_chars(1, keep=True)
                         self.parse_callback()
-                    continue
 
                 # Begin custom commands.
-                if char == '%':
+                elif char == '%':
                     self.skip_chars(1, keep=False)
 
                     # NO ARGUMENTS
@@ -1177,7 +1176,6 @@ class MMKParser:
 
                 if char == ';':
                     self.parse_comment()
-                    continue
 
                 elif char == '%':
                     self.skip_chars(1, False)
