@@ -544,9 +544,11 @@ class MMKParser:
         hex_vol = to_hex(new_vol)
         return hex_vol
 
-    def parse_vbend(self, time, vol, whitespace):
+    def parse_vbend(self):
         # Takes a fraction of a quarter note as input.
         # Converts to ticks.
+        time, vol, whitespace = self.get_phrase(2)
+
         time_hex = to_hex(parse_time(time))
         vol_hex = self.parse_vol_hex(vol)
 
@@ -592,12 +594,14 @@ class MMKParser:
         # Pass the command through.
         self.put(self.state.y)
 
-    def parse_ybend(self, duration, pan):
+    def parse_ybend(self):
+        duration, pan, whitespace = self.get_phrase(2)
+
         duration_hex = to_hex(parse_time(duration))
         self.state.y = self.calc_pan(pan)
         pan_hex = to_hex(self.state.y)
 
-        self.put('$DC {} {}'.format(duration_hex, pan_hex))
+        self.put('$DC {} {}{}'.format(duration_hex, pan_hex, whitespace))
 
     # **** meh ****
 
@@ -620,9 +624,11 @@ class MMKParser:
 
     # Multi-word parsing
 
-    def parse_pbend(self, delay, time, note, whitespace):
+    def parse_pbend(self):
         # Takes a fraction of a quarter note as input.
         # Converts to ticks.
+        delay, time, note, whitespace = self.get_phrase(3)
+
         delay_hex = to_hex(parse_time(delay))
         time_hex = to_hex(parse_time(time))
 
@@ -630,13 +636,17 @@ class MMKParser:
 
     # **** oscillatory effects ****
 
-    def parse_vib(self, delay, frequency, amplitude, whitespace):
+    def parse_vib(self):
+        delay, frequency, amplitude, whitespace = self.get_phrase(3)
+
         delay_hex = to_hex(parse_time(delay))
         freq_hex = to_hex(parse_frac(frequency))
 
         self.put('$DE {} {} {}{}'.format(delay_hex, freq_hex, amplitude, whitespace))
 
-    def parse_trem(self, delay, frequency, amplitude, whitespace):
+    def parse_trem(self):
+        delay, frequency, amplitude, whitespace = self.get_phrase(3)
+
         delay_hex = to_hex(parse_time(delay))
         freq_hex = to_hex(parse_frac(frequency))
 
@@ -992,12 +1002,9 @@ class MMKParser:
 
                 if self.pos == self.size():
                     break
-                    # FIXME COMMENT Only whitespace left, means already printed, nothing more to do
+                    # Only whitespace left, means already printed, nothing more to do
                 self._begin_pos = self.pos
                 char = self.peek()
-
-                # TODO refactor to elif (so you can't forget continue)
-                # and make functions get their own args.
 
                 # Parse the no-argument default commands.
                 if char == 'v':
@@ -1052,103 +1059,80 @@ class MMKParser:
                     if command == 'mmk0.1':
                         raise Exception("this shouldn't happen")
 
-                    if command == 'define':
+                    elif command == 'define':
                         key = self.get_word()[0]
                         value = self.get_line()
                         self.defines[key] = value
-                        continue
 
-                    if command == 'reset':
+                    elif command == 'reset':
                         self.state = copy.copy(self.orig_state)
                         assert self.state is not self.orig_state
-                        continue
 
-                    if command == 'isvol':
+                    elif command == 'isvol':
                         self.state.isvol = True
-                        continue
 
-                    if command == 'ispan':
+                    elif command == 'ispan':
                         self.state.ispan = True
-                        continue
 
-                    if command == 'notvol':
+                    elif command == 'notvol':
                         self.state.isvol = False
-                        continue
 
-                    if command == 'notpan':
+                    elif command == 'notpan':
                         self.state.ispan = False
-                        continue
 
-                    if command == 'notelen':
+                    elif command == 'notelen':
                         self.parse_toggle_notelen()
 
                     # N ARGUMENTS
 
-                    if command == 'save':
+                    elif command == 'save':
                         self.parse_save()
-                        continue
 
-                    if command == 'restore':
+                    elif command == 'restore':
                         self.parse_restore()
-                        continue
 
-                    if command in ['t', 'transpose']:
+                    elif command in ['t', 'transpose']:
                         self.parse_transpose()
-                        continue
 
-                    if command == 'adsr':
+                    elif command == 'adsr':
                         self.parse_adsr(instr=False)
-                        continue
 
-                    if command == 'gain':
+                    elif command == 'gain':
                         self.parse_gain(instr=False)
-                        continue
 
                     # Wavetable sweep
-                    if command == 'wave_sweep':
+                    elif command == 'wave_sweep':
                         self.parse_wave_sweep()
-                        continue
 
                     # Echo and FIR
-                    if command == 'fir':
+                    elif command == 'fir':
                         self.parse_fir()
-                        continue
 
-                    # ONE ARGUMENT
-                    arg, whitespace = self.get_word()
-
-                    if command == 'vmod':
+                    # Volume scaling
+                    elif command == 'vmod':
+                        arg, _ = self.get_word()
                         self.state.vmod = parse_frac(arg)
-                        continue
 
-                    # 2 ARGUMENTS
-                    arg2, whitespace = self.get_word()
-                    if command in ['vbend', 'vb']:
-                        self.parse_vbend(arg, arg2, whitespace)
-                        continue
+                    # Parameter slides
+                    elif command in ['vbend', 'vb']:
+                        self.parse_vbend()
 
-                    if command in ['ybend', 'yb']:
-                        self.parse_ybend(duration=arg, pan=arg2)
-                        self.put(whitespace)
-                        continue
+                    elif command in ['ybend', 'yb']:
+                        self.parse_ybend()
 
-                    # 3 ARGUMENTS
-                    arg3, whitespace = self.get_word()
+                    elif command in ['pbend', 'pb']:
+                        self.parse_pbend()
 
-                    if command == 'vib':
-                        self.parse_vib(arg, arg2, arg3, whitespace)
-                        continue
+                    # Vibrato/tremolo
+                    elif command == 'vib':
+                        self.parse_vib()
 
-                    if command == 'trem':
-                        self.parse_trem(arg, arg2, arg3, whitespace)
-                        continue
-
-                    if command in ['pbend', 'pb']:
-                        self.parse_pbend(arg, arg2, arg3, whitespace)
-                        continue
+                    elif command == 'trem':
+                        self.parse_trem()
 
                     # INVALID COMMAND
-                    raise MMKError('Invalid command ' + command)
+                    else:
+                        raise MMKError('Invalid command ' + command)
                 else:
                     self.skip_chars(1, keep=True)
                     self.skip_spaces(True)
