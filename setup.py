@@ -12,5 +12,5 @@ setup(
     description='Preprocessor/compiler and automated sample extractor/tuner for AddMusicK',
     install_requires=['sf2utils', 'plumbum', 'ruamel.yaml', 'click',
               'dataclasses;python_version<"3.7"'],
-    # TODO https://python-packaging.readthedocs.io/en/latest/command-line-scripts.html#the-console-scripts-entry-point
+    tests_require=['pytest', 'pytest-mock', 'pytest-pycharm']
 )

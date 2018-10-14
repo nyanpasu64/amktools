@@ -117,21 +117,17 @@ def test_sample_dir(filesystem_tree):
     ('test2.cfg', '$03 $80'),
 ])
 def test_cfg(cfg_name, expected):
-    runner = CliRunner()
+    # FIXME tends to deadlock when running under Linux via Wine
 
-    sample_output = tempfile.mkdtemp()
+    wav2brr_dir = Path(tempfile.mkdtemp())
+    brr_dir = tempfile.mkdtemp()
 
     opt = wav2brr.CliOptions(
         verbose=2,
-        sample_folder=sample_output,
+        sample_folder=brr_dir,
         decode_loops=1)
 
     cfg_path = Path(__file__, '..', cfg_name).resolve()
-    try:
-        brr_path, tuning = wav2brr.convert_cfg(opt, str(cfg_path), {})
-    finally:
-        cfg_dir = cfg_path.parent.resolve()
-        # for file in itertools.chain(cfg_dir.glob('* decoded.wav'), cfg_dir.glob('*.brr')):
-        #     file.unlink()
+    brr_path, tuning = wav2brr.convert_cfg(opt, str(cfg_path), wav2brr_dir, {})
 
     assert tuning == expected
