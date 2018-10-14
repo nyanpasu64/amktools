@@ -1,7 +1,8 @@
-from fractions import Fraction
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
-from amktools.wav2brr.util import ISample as _ISample
+if TYPE_CHECKING:
+    from amktools.wav2brr import BrrResult
+    from amktools.wav2brr.util import ISample as _ISample
 
 
 def note2ratio(note, cents=0):
@@ -16,24 +17,32 @@ def note2pitch(note, cents=0):
     return freq
 
 
-def brr_tune(sample: _ISample, ratio, tuning: Optional[float]):
-    ratio = Fraction(ratio)
-
+def brr_tune(
+        sample: '_ISample',
+        brr_result: 'BrrResult',
+        tuning: Optional[float],
+        ncyc: Optional[float],
+):
     if tuning is not None:
-        tuning = tuning * ratio
+        tuning = tuning * brr_result.ratio
     else:
-        # If a sample is played back N cents flats, the sample is N cents sharp.
-        pitch_error = -sample.pitch_correction
+        if ncyc is not None:
+            loop_nsamp = brr_result.nsamp - brr_result.loop_samp
+            smp_cyc = loop_nsamp / ncyc
 
-        # Note frequency
-        cyc_s = note2pitch(sample.original_pitch, pitch_error)
-        # Absolute frequencies unsupported. (original_pitch is correct in DS Rainbow Road percussion)
+        elif sample.original_pitch is not None:
+            # If a sample is played back N cents flats, the sample is N cents sharp.
+            pitch_error = -sample.pitch_correction
 
-        # Sampling rate
-        smp_s = sample.sample_rate * ratio
+            # Note frequency
+            cyc_s = note2pitch(sample.original_pitch, pitch_error)
+            # Absolute frequencies unsupported. (original_pitch is correct in DS Rainbow Road percussion)
 
-        # Period nsamp
-        smp_cyc = smp_s / cyc_s
+            # Sampling rate
+            smp_s = sample.sample_rate * brr_result.ratio
+
+            # Period nsamp
+            smp_cyc = smp_s / cyc_s
 
         tuning = smp_cyc / 16
 

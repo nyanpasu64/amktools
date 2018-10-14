@@ -3,7 +3,6 @@ import click
 import ctypes
 import logging
 import os
-import plumbum
 import re
 import shutil
 import sys
@@ -12,6 +11,8 @@ from contextlib import contextmanager
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
+
+from dataclasses import dataclass
 from plumbum import local
 from ruamel.yaml import YAML
 from sf2utils.sample import Sf2Sample
@@ -224,6 +225,8 @@ def convert_cfg(opt: CliOptions, cfg_path: str, wav2brr_dir: Path, name2sample: 
         # Exact AMK tuning (wavelength in 16-sample units)
         tuning_ = cfg.get('tuning', None)
 
+        ncyc = cfg.get('ncyc', None)
+
         # Load resampling settings.
 
         if cfg_fname in name2sample:
@@ -278,10 +281,10 @@ def convert_cfg(opt: CliOptions, cfg_path: str, wav2brr_dir: Path, name2sample: 
             ratio = Fraction(resamp, conv.rate)
         else:
             ratio = Fraction(ratio)
-        ratio = conv.convert(ratio=ratio, loop=loop, truncate=truncate, volume=volume, decode=True)
+        brr_result = conv.convert(ratio=ratio, loop=loop, truncate=truncate, volume=volume, decode=True)
         shutil.copy(conv.brr_path, opt.sample_folder)
 
-        tune = tuning.brr_tune(sample, ratio, tuning_)[1]
+        tune = tuning.brr_tune(sample, brr_result, tuning_, ncyc)[1]
         print(cfg_fname, tune)
 
         print()
@@ -315,6 +318,8 @@ def pushd(new_dir: Union[Path, str]):
         os.chdir(previous_dir)
 
 
+end_minus_one_regex = re.compile(
+    r'^Size of file to encode : \d+ samples = (\d+) BRR blocks\.', re.MULTILINE)
 loop_regex = re.compile(
     r'^Position of the loop within the BRR sample : \d+ samples = (\d+) BRR blocks\.',
     re.MULTILINE)
@@ -333,6 +338,14 @@ BRR_EXT = '.brr'
 WAV2BRR_DIRNAME = '~wav2brr'
 
 NOWRAP = True
+
+
+@dataclass
+class BrrResult:
+    ratio: Fraction
+    loop_samp: int
+    nsamp: int
+
 
 # TODO: "name" actually means "file path minus extension".
 class Converter:
@@ -365,7 +378,7 @@ class Converter:
         return self.rate
 
     def convert(self, ratio: Fraction, loop: Optional[int], truncate: Optional[int],
-                volume: Fraction, decode: bool) -> Fraction:
+                volume: Fraction, decode: bool) -> BrrResult:
         """
         Convert self.wav_path to self.brr_path, resampling by ratio.
         :param ratio: Resampling ratio.
@@ -414,14 +427,18 @@ class Converter:
             print('brr_encoder', ' '.join(args))
             print(output)
 
+        # Parse stdout
         if is_loop:
             loop_idx = int(search(loop_regex, output))
         else:
             loop_idx = 0
         byte_offset = loop_idx * 9
 
-        wav2brr_ratio = 1 / Fraction(reciprocal_ratio_regex.search(output).group(1))
+        wav2brr_ratio = 1 / Fraction(search(reciprocal_ratio_regex, output))
 
+        end_idx = int(search(end_minus_one_regex, output)) + 1
+
+        # Done
         if opt.verbose: print('loop_bytes', byte_offset)
 
         if decode:
@@ -433,7 +450,13 @@ class Converter:
         with open(self.brr_path, 'wb') as brr_file:
             brr_file.write(data)
 
-        return wav2brr_ratio
+        # Result
+
+        return BrrResult(
+            wav2brr_ratio,
+            loop_idx * 16,
+            end_idx * 16
+        )
 
     def decode(self, ratio, loop_idx):
         opt = self.opt
