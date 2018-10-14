@@ -167,7 +167,7 @@ def format_note(midi: int):
     return f'o{octave}{note}'
 
 
-QUARTER_TO_TICKS = 0x30
+TICKS_PER_BEAT = 0x30
 
 
 def vol_midi2smw(midi_vol):
@@ -200,7 +200,7 @@ def none_of(chars) -> Pattern:
 def parse_time(word: str) -> Fraction:
     if word[0] == '=':
         return Fraction(word[1:])
-    return parse_frac(word) * QUARTER_TO_TICKS
+    return parse_frac(word) * TICKS_PER_BEAT
 
 
 @dataclass
@@ -280,7 +280,8 @@ class MMKParser:
         self._command = None
         self._begin_pos = 0
 
-    # TODO MshFile object with read methods, line counts.
+    # TODO Stream object with read methods, get_word, etc.
+    # And external parse_... functions.
 
     def size(self):
         return len(self.in_str)
@@ -458,8 +459,11 @@ class MMKParser:
         while self.peek().isdigit():    # FIXME breaks on EOF (test_command_eof)
             buffer += self.get_char()
 
-        if not buffer and maybe:
-            return None
+        if not buffer:
+            if maybe:
+                return None
+            else:
+                raise MMKError('Integer expected, but no digits to parse')
         return parse_int_round(buffer)
 
     def put(self, pstr):
@@ -502,6 +506,40 @@ class MMKParser:
             )
 
         self.state.is_notelen = state
+
+    def parse_note(self):
+        """ Parse a fractional note to a tick count. """
+        note_chr = self.get_char()
+
+        # TODO fix duplication with parse_time().
+        # It's difficult. parse_time takes a string. This pulls from stream.
+
+        # Ignore "c=48" or "c" (without number).
+        peek = self.peek()
+        if not (peek.isnumeric() or peek == '/'):
+            self.put(note_chr)
+            return
+
+        # Convert from 'fractional beats' into 'tick counts'.
+        if self.peek().isnumeric():
+            num = self.get_int()
+        else:
+            num = 1
+
+        if self.peek() == '/':
+            den = self.get_int()
+        else:
+            den = 1
+
+        dur = Fraction(num/den) * TICKS_PER_BEAT
+        if int(dur) != dur:
+            raise MMKError(
+                f'Invalid note duration {Fraction(num/den)}, must be multiple of 1/48')
+
+        int(dur)
+
+    def parse_time(self):
+
 
     # **** Transpose ****
 
@@ -989,6 +1027,8 @@ class MMKParser:
     # PANSCALE: Fraction (5/64)
     # ISVOL, ISPAN: bool
 
+    NOTES_WITH_DURATION = set('abcdefg^rl')
+
     def parse(self) -> str:
         # For exception debug
         try:
@@ -1006,7 +1046,10 @@ class MMKParser:
                 self._begin_pos = self.pos
                 char = self.peek()
 
-                # Parse the no-argument default commands.
+                # Parse the default AMK commands.
+                if self.state.is_notelen and char in self.NOTES_WITH_DURATION:
+                    self.parse_note()
+
                 if char == 'v':
                     self.parse_vol()
 
