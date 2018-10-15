@@ -225,63 +225,27 @@ class WavetableMetadata:
         self.tuning_str = '$%02x $00' % self.tuning
 
 
-@dataclass
-class MMKState:
-    isvol: bool = False
-    ispan: bool = False
-    is_notelen: bool = False
-    panscale: Fraction = Fraction('5/64')
-    vmod: Fraction = Fraction(1)
-
-    v: Optional[str] = None
-    y: str = '10'
-
-    keys: ClassVar = ['v', 'y']
-
-
-class MMKParser:
-    SHEBANG = '%mmk0.1'
-    FIRST_INSTRUMENT = 30
-
-    def __init__(
-            self,
-            in_str: str,
-            tuning: Optional[Dict[str, str]],
-            wavetable: Optional[Dict[str, WavetableMetadata]] = None
-    ):
-        # Input parameters
-        self.in_str = in_str
-        self.tuning = tuning
-        self.wavetable = wavetable
-
-        # Parser state
-        self.orig_state = MMKState()
-        self.state = copy.copy(self.orig_state)
-        self.defines = dict(
-            viboff='$DF',
-            tremoff='$E5 $00 $00 $00',
-            slur='$F4 $01',
-            light='$F4 $02',
-            restore_instr='$F4 $09'
-        )  # type: Dict[str, str]
-
-        # Wavetable parser state
-        self.curr_chan: int = None
-        self.smp_num = 0
-        self.instr_num = self.FIRST_INSTRUMENT
-        self.silent_idx: int = None
-
-        # File IO
-        self.pos = 0
-        self.out = StringIO()
-
-
-        # debug
-        self._command = None
-        self._begin_pos = 0
-
-    # TODO Stream object with read methods, get_word, etc.
+class Stream:
+    # Idea: Stream object with read methods, get_word, etc.
     # And external parse_... functions.
+
+    SHEBANG = '%mmk0.1'
+
+    def __init__(self, in_str: str, defines: Dict[str, str], remove_shebang=False):
+        """
+        Construct an input Stream.
+        :param in_str: string
+        :param defines: Passed by reference.
+        :param remove_shebang: Only True on first Stream created
+            (not on #instruments{...}).
+        """
+        self.in_str = in_str
+        self.defines = defines
+        self.pos = 0
+
+        if remove_shebang:
+            if self.in_str.startswith(self.SHEBANG):
+                self.in_str = self.in_str[len(self.SHEBANG):].lstrip()
 
     def size(self):
         return len(self.in_str)
@@ -292,60 +256,18 @@ class MMKParser:
     def peek(self):
         return self.in_str[self.pos]
 
+    def peek_equals(self, keyword: str):
+        return self.in_str.startswith(keyword, self.pos)
+
+
     def is_eof(self):
         assert self.pos <= self.size()
-        return self.pos >= self.size()
+        return self.pos >= self.size()  # TODO ==
 
     def get_char(self) -> str:
         out = self.in_str[self.pos]
         self.pos += 1
         return out
-
-    # **** I/O manipulation, AKA "wish I wrote a proper lexer/parser/output" ****
-
-    @contextmanager
-    def set_input(self, in_str: str):
-        string = self.in_str
-        begin = self.pos
-
-        self.in_str = in_str
-        self.pos = 0
-        yield
-
-        self.in_str = string
-        self.pos = begin
-
-
-    @contextmanager
-    def end_at(self, sub):
-        begin = self.pos
-        in_str = self.get_until(sub, strict=False)
-        end = self.pos
-
-        with self.set_input(in_str):
-            yield
-            if begin + self.pos != end:
-                raise Exception('Bounded parsing error, parsing ended at {} but region ends at {}'
-                                .format(begin + self.pos, end))
-        self.pos = end
-
-    def until_comment(self):
-        return self.end_at(any_of(';\n'))
-
-    @contextmanager
-    def capture(self) -> StringIO:
-        orig = self.out
-
-        self.out = StringIO()
-        with self.out:
-            yield self.out
-
-        self.out = orig
-
-    def parse_str(self, in_str: str):
-        with self.set_input(in_str):
-            self.parse()
-
 
     # **** Parsing ****
     def get_until(self, regex: Union[Pattern, str], strict) -> str:
@@ -372,7 +294,7 @@ class MMKParser:
         self.pos = end
         return out
 
-    def get_chars(self, num) -> str:
+    def get_chars(self, num: int) -> str:
         """ Gets the specified number of characters.
         :param num: Number of characters to skip.
         :return: String of characters
@@ -382,10 +304,24 @@ class MMKParser:
         self.pos = new
         return skipped
 
-    def skip_chars(self, num, keep: bool = True):
+    def skip_chars(self, num, put: Callable = None):
         skipped = self.get_chars(num)
-        if keep:
-            self.put(skipped)
+        if put:
+            put(skipped)
+
+    def skip_until(self, end: str, put: Callable):
+        # FIXME deprecated
+        in_str = self.in_str
+        self.skip_chars(1, put)
+        end_pos = in_str.find(end, self.pos)
+        if end_pos == -1:
+            end_pos = self.size()
+
+        # The delimiter is skipped as well.
+        # If end_pos == self.len(), skip_chars handles the OOB case by not reading the extra char.
+        self.skip_chars(end_pos - self.pos + 1, put)
+
+        return self.in_str[end_pos]
 
     # High-level matching functions
     # Returns (parse, whitespace = skip_spaces())
@@ -399,7 +335,7 @@ class MMKParser:
         :return: (word, trailing whitespace)
         """
 
-        self.skip_spaces(False)
+        self.skip_spaces()
 
         word = self.get_until(self.TERMINATORS_REGEX, strict=False)
         if not word:
@@ -431,10 +367,10 @@ class MMKParser:
         skipped = self.get_until(not_whitespace, strict=False)
         return skipped
 
-    def skip_spaces(self, keep: bool, exclude=''):
+    def skip_spaces(self, put: Callable = None, exclude=''):
         skipped = self.get_spaces(exclude)
-        if keep:
-            self.put(skipped)
+        if put:
+            put(skipped)
 
     def get_line_spaces(self):
         return self.get_spaces(exclude='\n')
@@ -465,6 +401,105 @@ class MMKParser:
             else:
                 raise MMKError('Integer expected, but no digits to parse')
         return parse_int_round(buffer)
+
+
+
+@dataclass
+class MMKState:
+    isvol: bool = False
+    ispan: bool = False
+    is_notelen: bool = False
+    panscale: Fraction = Fraction('5/64')
+    vmod: Fraction = Fraction(1)
+
+    v: Optional[str] = None
+    y: str = '10'
+
+    keys: ClassVar = ['v', 'y']
+
+
+class MMKParser:
+    FIRST_INSTRUMENT = 30
+
+    def __init__(
+            self,
+            in_str: str,
+            tuning: Optional[Dict[str, str]],
+            wavetable: Optional[Dict[str, WavetableMetadata]] = None
+    ):
+        # Input parameters
+        self.tuning = tuning
+        self.wavetable = wavetable
+
+        # Parser state
+        self.orig_state = MMKState()
+        self.state = copy.copy(self.orig_state)
+        self.defines = dict(
+            viboff='$DF',
+            tremoff='$E5 $00 $00 $00',
+            slur='$F4 $01',
+            light='$F4 $02',
+            restore_instr='$F4 $09'
+        )  # type: Dict[str, str]
+
+        # Wavetable parser state
+        self.curr_chan: int = None
+        self.smp_num = 0
+        self.instr_num = self.FIRST_INSTRUMENT
+        self.silent_idx: int = None
+
+        # File IO
+        self.stream = Stream(in_str, self.defines, remove_shebang=True)
+        self.out = StringIO()
+
+        # To print exception location
+        self._command = None
+        self._begin_pos = 0
+
+    # **** I/O manipulation, AKA "wish I wrote a proper lexer/parser/output" ****
+
+    @contextmanager
+    def set_input(self, in_str: str):
+        """ Temporarily replaces self.stream with new string.
+        Idea: Maybe parser functions should take a stream parameter?
+        """
+        stream = self.stream
+        self.stream = Stream(in_str, self.defines)
+        yield
+
+        self.stream = stream
+
+
+    @contextmanager
+    def end_at(self, end_regex: Pattern):
+        """ Temporarily replaces self.stream with truncated version. """
+        in_str = self.stream.get_until(end_regex, strict=False)
+        with self.set_input(in_str):
+            yield
+            if not self.stream.is_eof():
+                raise Exception(
+                    'Bounded parsing error, parsing ended at {} but region ends at {}'
+                        .format(self.stream.pos, len(in_str)))
+
+
+    def until_comment(self):
+        return self.end_at(any_of(';\n'))
+
+    @contextmanager
+    def capture(self) -> StringIO:
+        orig = self.out
+
+        self.out = StringIO()
+        with self.out:
+            yield self.out
+
+        self.out = orig
+
+    def parse_str(self, in_str: str):
+        with self.set_input(in_str):
+            self.parse()
+
+    # Writing strings
 
     def put(self, pstr):
         self.out.write(pstr)
@@ -497,7 +532,7 @@ class MMKParser:
     )
 
     def parse_toggle_notelen(self):
-        word, _ = self.get_word()
+        word, _ = self.stream.get_word()
         try:
             state = self.WORD_TO_BOOL[word]
         except KeyError:
@@ -509,25 +544,25 @@ class MMKParser:
 
     def parse_note(self):
         """ Parse a fractional note to a tick count. """
-        note_chr = self.get_char()
+        note_chr = self.stream.get_char()
 
         # TODO fix duplication with parse_time().
         # It's difficult. parse_time takes a string. This pulls from stream.
 
         # Ignore "c=48" or "c" (without number).
-        peek = self.peek()
+        peek = self.stream.peek()
         if not (peek.isnumeric() or peek == '/'):
             self.put(note_chr)
             return
 
         # Convert from 'fractional beats' into 'tick counts'.
-        if self.peek().isnumeric():
-            num = self.get_int()
+        if self.stream.peek().isnumeric():
+            num = self.stream.get_int()
         else:
             num = 1
 
-        if self.peek() == '/':
-            den = self.get_int()
+        if self.stream.peek() == '/':
+            den = self.stream.get_int()
         else:
             den = 1
 
@@ -538,13 +573,10 @@ class MMKParser:
 
         int(dur)
 
-    def parse_time(self):
-
-
     # **** Transpose ****
 
     def parse_transpose(self) -> None:
-        transpose_str, whitespace = self.get_phrase(1)
+        transpose_str, whitespace = self.stream.get_phrase(1)
         transpose = parse_int_hex(transpose_str)
 
         if transpose not in range(-0x80, 0x80):
@@ -565,8 +597,8 @@ class MMKParser:
         return str(round(vol))
 
     def parse_vol(self):
-        self.skip_chars(1, keep=True)
-        orig_vol = self.get_int(maybe=True)
+        self.stream.skip_chars(1, self.put)
+        orig_vol = self.stream.get_int(maybe=True)
         if orig_vol is None:
             return
 
@@ -585,7 +617,7 @@ class MMKParser:
     def parse_vbend(self):
         # Takes a fraction of a quarter note as input.
         # Converts to ticks.
-        time, vol, whitespace = self.get_phrase(2)
+        time, vol, whitespace = self.stream.get_phrase(2)
 
         time_hex = to_hex(parse_time(time))
         vol_hex = self.parse_vol_hex(vol)
@@ -623,8 +655,8 @@ class MMKParser:
             return str(orig_pan)
 
     def parse_pan(self):
-        self.skip_chars(1, keep=True)
-        orig_pan = self.get_int(maybe=True)
+        self.stream.skip_chars(1, self.put)
+        orig_pan = self.stream.get_int(maybe=True)
         if orig_pan is None:
             return
 
@@ -633,7 +665,7 @@ class MMKParser:
         self.put(self.state.y)
 
     def parse_ybend(self):
-        duration, pan, whitespace = self.get_phrase(2)
+        duration, pan, whitespace = self.stream.get_phrase(2)
 
         duration_hex = to_hex(parse_time(duration))
         self.state.y = self.calc_pan(pan)
@@ -643,29 +675,15 @@ class MMKParser:
 
     # **** meh ****
 
-    def skip_until(self, end):
-        # FIXME deprecated
-        in_str = self.in_str
-        self.skip_chars(1, keep=True)
-        end_pos = in_str.find(end, self.pos)
-        if end_pos == -1:
-            end_pos = self.size()
-
-        # The delimiter is skipped as well.
-        # If end_pos == self.len(), skip_chars handles the OOB case by not reading the extra char.
-        self.skip_chars(end_pos - self.pos + 1, keep=True)
-
-        return self.in_str[end_pos]
-
     def parse_comment(self):
-        self.skip_until('\n')
+        self.stream.skip_until('\n', self.put)
 
     # Multi-word parsing
 
     def parse_pbend(self):
         # Takes a fraction of a quarter note as input.
         # Converts to ticks.
-        delay, time, note, whitespace = self.get_phrase(3)
+        delay, time, note, whitespace = self.stream.get_phrase(3)
 
         delay_hex = to_hex(parse_time(delay))
         time_hex = to_hex(parse_time(time))
@@ -675,7 +693,7 @@ class MMKParser:
     # **** oscillatory effects ****
 
     def parse_vib(self):
-        delay, frequency, amplitude, whitespace = self.get_phrase(3)
+        delay, frequency, amplitude, whitespace = self.stream.get_phrase(3)
 
         delay_hex = to_hex(parse_time(delay))
         freq_hex = to_hex(parse_frac(frequency))
@@ -683,7 +701,7 @@ class MMKParser:
         self.put('$DE {} {} {}{}'.format(delay_hex, freq_hex, amplitude, whitespace))
 
     def parse_trem(self):
-        delay, frequency, amplitude, whitespace = self.get_phrase(3)
+        delay, frequency, amplitude, whitespace = self.stream.get_phrase(3)
 
         delay_hex = to_hex(parse_time(delay))
         freq_hex = to_hex(parse_frac(frequency))
@@ -709,7 +727,7 @@ class MMKParser:
     def parse_gain(self, *, instr):
         # Look for a matching GAIN value, ensure the input rate lies in-bounds,
         # then write a hex command.
-        curve, rate, whitespace = self.get_phrase(2)
+        curve, rate, whitespace = self.stream.get_phrase(2)
 
         if instr:
             prefix = '$00 $00'
@@ -739,7 +757,7 @@ class MMKParser:
 
         :param instr: Whether ADSR command occurs in instrument definition (or MML command)
         """
-        attack, decay, sustain, release, whitespace = self.get_phrase(4)
+        attack, decay, sustain, release, whitespace = self.stream.get_phrase(4)
         if sustain.startswith('full'):
             sustain = '7'
 
@@ -793,7 +811,7 @@ class MMKParser:
         'now': 4
     }
     def parse_callback(self):
-        expr = self.get_until(any_of(')'), strict=True)
+        expr = self.stream.get_until(any_of(')'), strict=True)
         args = [word.strip() for word in expr.split(',')]
 
         # if len(args) < 1:
@@ -827,7 +845,7 @@ class MMKParser:
         self.put(val)
 
         with self.set_input(val):
-            instr_path, whitespace = self.get_quoted()
+            instr_path, whitespace = self.stream.get_quoted()
 
         instr_path = Path(instr_path)
         if instr_path.suffix != '.brr':
@@ -842,7 +860,7 @@ class MMKParser:
         self.smp_num += 1
         # "test.brr" $ad $sr $gain $tune $tune
 
-        brr, whitespace = self.get_quoted()
+        brr, whitespace = self.stream.get_quoted()
 
         if self.tuning is None:
             perr('Cannot use %tune without a tuning file')
@@ -866,7 +884,7 @@ class MMKParser:
         self.smp_num += 1
 
     def parse_group(self):
-        self.smp_num += self.get_int()
+        self.smp_num += self.stream.get_int()
 
     def parse_wave_group(self, is_instruments: bool):
         """
@@ -876,13 +894,13 @@ class MMKParser:
         #instruments {
         %wave_group "0" %adsr -1,-1,-1,0
         """
-        name, whitespace = self.get_quoted()
+        name, whitespace = self.stream.get_quoted()
         ntick_playback = None
 
         if not is_instruments:
-            ntick_playback = self.get_int()     # Only load the first N ticks
-            whitespace = self.get_spaces(exclude='\n')
-            # ntick_playback, whitespace = self.get_word()     # The sweep lasts for N ticks
+            ntick_playback = self.stream.get_int()     # Only load the first N ticks
+            whitespace = self.stream.get_spaces(exclude='\n')
+            # ntick_playback, whitespace = self.stream.get_word()     # The sweep lasts for N ticks
             # ntick_playback = int(parse_time(ntick_playback))
 
         meta = self.wavetable[name]
@@ -894,7 +912,7 @@ class MMKParser:
                 self.put(' ' + meta.tuning_str)
                 # *ugh* the instrument's tuning value is basically unused
             else:
-                self.put(self.get_line())
+                self.put(self.stream.get_line())
 
             after = output.getvalue()
             if not is_instruments:  # If samples
@@ -907,8 +925,8 @@ class MMKParser:
                         setattr(meta, arg, True)
                     else:
                         raise MMKError(f'Invalid #samples{{%wave_group}} argument {arg}')
-        comments = self.get_line()
-        self.skip_chars(1, keep=False)  # remove trailing newline
+        comments = self.stream.get_line()
+        self.stream.skip_chars(1)  # remove trailing newline
 
         for wave in waves:
             # eh, missing indentation. who cares.
@@ -942,8 +960,8 @@ class MMKParser:
     SLUR = '$F4 $01  '
     def parse_wave_sweep(self):
         """ Print a wavetable sweep. """
-        name, _ = self.get_quoted()
-        ntick_note = self.get_int()     # The sweep lasts for N ticks
+        name, _ = self.stream.get_quoted()
+        ntick_note = self.stream.get_int()     # The sweep lasts for N ticks
         meta = self.wavetable[name]
 
         # Load silent instrument with proper tuning
@@ -1014,10 +1032,10 @@ class MMKParser:
 
     def parse_fir(self):
         # params = []
-        *params, _whitespace = self.get_phrase(8)
+        *params, _whitespace = self.stream.get_phrase(8)
         params = [parse_int_hex(param) for param in params]
-            # params.append(self.get_int())
-            # _whitespace = self.get_line_spaces()
+            # params.append(self.stream.get_int())
+            # _whitespace = self.stream.get_line_spaces()
 
         self.put('$F5 ')
         self.put_hex(*params)
@@ -1033,18 +1051,15 @@ class MMKParser:
         # For exception debug
         try:
             # Remove the header. TODO increment pos instead.
-            if self.in_str.startswith(self.SHEBANG):
-                self.in_str = self.in_str[len(self.SHEBANG):].lstrip()  # type: str
-
-            while self.pos < self.size():
+            while not self.stream.is_eof():
                 # Yeah, simpler this way. But could hide bugs/inconsistencies.
-                self.skip_spaces(True)
+                self.stream.skip_spaces(self.put)
 
-                if self.pos == self.size():
+                if self.stream.is_eof():
                     break
                     # Only whitespace left, means already printed, nothing more to do
-                self._begin_pos = self.pos
-                char = self.peek()
+                self._begin_pos = self.stream.pos
+                char = self.stream.peek()
 
                 # Parse the default AMK commands.
                 if self.state.is_notelen and char in self.NOTES_WITH_DURATION:
@@ -1060,39 +1075,39 @@ class MMKParser:
                     self.parse_comment()
 
                 elif char == '#':  # instruments{}
-                    self.skip_chars(1, keep=True)
-                    self.skip_spaces(True)
+                    self.stream.skip_chars(1, self.put)
+                    self.stream.skip_spaces(self.put)
 
                     ret = False
 
                     def branch(keyword: str, method: Callable):
                         nonlocal ret
-                        if self.in_str.startswith(keyword, self.pos):
-                            self.skip_until('{')
-                            self.skip_chars(1, keep=True)
+                        if self.stream.peek_equals(keyword):
+                            self.stream.skip_until('{', self.put)
+                            self.stream.skip_chars(1, self.put)
                             method()
                             ret = True
 
                     branch('samples', self.parse_samples)
                     branch('instruments', self.parse_instruments)
-                    if not ret and self.peek().isnumeric():
-                        chan = self.get_char()
+                    if not ret and self.stream.peek().isnumeric():
+                        chan = self.stream.get_char()
                         self.curr_chan = int(chan)
                         self.put(chan)
 
 
                 elif char == '(':
-                    self.skip_chars(1, keep=True)
-                    if self.peek() == '!':
-                        self.skip_chars(1, keep=True)
+                    self.stream.skip_chars(1, self.put)
+                    if self.stream.peek() == '!':
+                        self.stream.skip_chars(1, self.put)
                         self.parse_callback()
 
                 # Begin custom commands.
                 elif char == '%':
-                    self.skip_chars(1, keep=False)
+                    self.stream.skip_chars(1)
 
                     # NO ARGUMENTS
-                    command_case, whitespace = self.get_word()
+                    command_case, whitespace = self.stream.get_word()
                     command = command_case.lower()
                     self._command = command
 
@@ -1103,8 +1118,8 @@ class MMKParser:
                         raise Exception("this shouldn't happen")
 
                     elif command == 'define':
-                        key = self.get_word()[0]
-                        value = self.get_line()
+                        key = self.stream.get_word()[0]
+                        value = self.stream.get_line()
                         self.defines[key] = value
 
                     elif command == 'reset':
@@ -1153,7 +1168,7 @@ class MMKParser:
 
                     # Volume scaling
                     elif command == 'vmod':
-                        arg, _ = self.get_word()
+                        arg, _ = self.stream.get_word()
                         self.state.vmod = parse_frac(arg)
 
                     # Parameter slides
@@ -1177,8 +1192,8 @@ class MMKParser:
                     else:
                         raise MMKError('Invalid command ' + command)
                 else:
-                    self.skip_chars(1, keep=True)
-                    self.skip_spaces(True)
+                    self.stream.skip_chars(1, self.put)
+                    self.stream.skip_spaces(self.put)
 
             return self.out.getvalue().strip() + '\n'
         except Exception:
@@ -1186,7 +1201,7 @@ class MMKParser:
             begin_pos = self._begin_pos
             idx = begin_pos
             for i in range(3):
-                idx = self.in_str.rfind('\n', 0, idx)
+                idx = self.stream.in_str.rfind('\n', 0, idx)
                 if idx == -1:
                     break
                 if begin_pos - idx >= 100:
@@ -1201,7 +1216,7 @@ class MMKParser:
             perr('#### MMK parsing error ####')
             perr('  Last command: ' + last)
             perr('  Context:')
-            perr(self.in_str[idx:begin_pos] + '...\n')
+            perr(self.stream.in_str[idx:begin_pos] + '...\n')
 
             raise  # main() eats MMKError to avoid visual noise
 
@@ -1215,25 +1230,25 @@ class MMKParser:
             """
             close = '}'
 
-            while self.pos < self.size():
+            while not self.stream.is_eof():
                 # pos = self.pos
-                self.skip_spaces(True, exclude=close)
-                self._begin_pos = self.pos
+                self.stream.skip_spaces(self.put, exclude=close)
+                self._begin_pos = self.stream.pos
                 # assert pos == self.pos
-                char = self.peek()
+                char = self.stream.peek()
 
                 if char in close:
-                    self.skip_chars(1, True)  # {}, ""
-                    self.skip_spaces(True, exclude='\n')
+                    self.stream.skip_chars(1, self.put)  # {}, ""
+                    self.stream.skip_spaces(self.put, exclude='\n')
                     return
 
                 if char == ';':
                     self.parse_comment()
 
                 elif char == '%':
-                    self.skip_chars(1, False)
+                    self.stream.skip_chars(1)
 
-                    command_case, whitespace = self.get_word()
+                    command_case, whitespace = self.stream.get_word()
                     command = command_case.lower()
                     self._command = command
 
@@ -1247,8 +1262,8 @@ class MMKParser:
                         perr(mapping.keys())
                         raise MMKError('Invalid command ' + command)
                 else:
-                    self.skip_chars(1, keep=True)
-                    self.skip_spaces(True)
+                    self.stream.skip_chars(1, self.put)
+                    self.stream.skip_spaces(self.put)
         return _parse
 
 
