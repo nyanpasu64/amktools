@@ -1097,11 +1097,17 @@ class MMKParser:
                 self._begin_pos = self.stream.pos
                 char = self.stream.peek()
 
+                # noinspection PyUnreachableCode
+                if False:
+                    # Do you realize exactly how many bugs I've created
+                    # because I accidentally used `if` instead of `elif`?
+                    pass
+
                 # Parse the default AMK commands.
-                if self.state.is_notelen and char in self.NOTES_WITH_DURATION:
+                elif self.state.is_notelen and char in self.NOTES_WITH_DURATION:
                     self.parse_note()
 
-                if char == 'v':
+                elif char == 'v':
                     self.parse_vol()
 
                 elif char == 'y':
