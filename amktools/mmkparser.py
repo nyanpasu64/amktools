@@ -168,6 +168,7 @@ def format_note(midi: int):
 
 
 TICKS_PER_BEAT = 0x30
+TICKS_PER_MEASURE = 4 * TICKS_PER_BEAT
 
 
 def vol_midi2smw(midi_vol):
@@ -195,12 +196,6 @@ def none_of(chars) -> Pattern:
     chars = ''.join(sorted(chars))
     regex = '(?=[^{}])'.format(re.escape(chars))
     return re.compile(regex)
-
-
-def parse_time(word: str) -> Fraction:
-    if word[0] == '=':
-        return Fraction(word[1:])
-    return parse_frac(word) * TICKS_PER_BEAT
 
 
 @dataclass
@@ -402,7 +397,43 @@ class Stream:
                 raise MMKError('Integer expected, but no digits to parse')
         return parse_int_round(buffer)
 
+    def get_time(self) -> Optional[int]:
+        self.skip_spaces()
+        first = self.peek()
 
+        if first == '=':
+            # =48
+            self.skip_chars(1)
+            return self.get_int()
+
+        is_numerator = first.isnumeric()
+        is_reciprocal = (first == '/')
+
+        if not (is_numerator or is_reciprocal):
+            # no duration specified
+            return None
+
+        if is_numerator:
+            # 1, 1/48
+            num = self.get_int()
+        else:
+            # /48
+            num = 1
+
+        if self.peek() == '/':
+            # 1/48. /48
+            self.skip_chars(1)
+            den = self.get_int()
+        else:
+            # 1
+            den = 1
+
+        dur = Fraction(num/den) * TICKS_PER_BEAT
+        if int(dur) != dur:
+            raise MMKError(
+                f'Invalid duration {Fraction(num/den)}, must be multiple of 1/48')
+
+        return int(dur)
 
 @dataclass
 class MMKState:
@@ -543,35 +574,27 @@ class MMKParser:
         self.state.is_notelen = state
 
     def parse_note(self):
-        """ Parse a fractional note to a tick count. """
+        """ Parse a fractional note, and output a tick count. """
         note_chr = self.stream.get_char()
 
-        # TODO fix duplication with parse_time().
-        # It's difficult. parse_time takes a string. This pulls from stream.
+        nticks: Optional[int] = self.stream.get_time()
+        time_str: str = self._format_time(nticks)
 
-        # Ignore "c=48" or "c" (without number).
-        peek = self.stream.peek()
-        if not (peek.isnumeric() or peek == '/'):
-            self.put(note_chr)
-            return
+        self.put(f'{note_chr}{time_str}')
 
-        # Convert from 'fractional beats' into 'tick counts'.
-        if self.stream.peek().isnumeric():
-            num = self.stream.get_int()
-        else:
-            num = 1
+    @staticmethod
+    def _format_time(ntick: Optional[int]) -> str:
+        """ Convert a tick duration to a MML "c4" or "c=48"-style duration. """
+        if ntick is None:
+            return ''
 
-        if self.stream.peek() == '/':
-            den = self.stream.get_int()
-        else:
-            den = 1
+        # If possible, convert to fraction of a measure (c4).
+        measure_frac = Fraction(ntick, TICKS_PER_MEASURE)
+        if measure_frac.numerator == 1:
+            return str(measure_frac.denominator)
 
-        dur = Fraction(num/den) * TICKS_PER_BEAT
-        if int(dur) != dur:
-            raise MMKError(
-                f'Invalid note duration {Fraction(num/den)}, must be multiple of 1/48')
-
-        int(dur)
+        # Otherwise return a tick duration (c=48).
+        return f'={ntick}'
 
     # **** Transpose ****
 
