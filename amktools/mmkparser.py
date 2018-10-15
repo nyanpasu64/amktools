@@ -659,9 +659,10 @@ class MMKParser:
     def parse_vbend(self):
         # Takes a fraction of a quarter note as input.
         # Converts to ticks.
-        time, vol, whitespace = self.stream.get_phrase(2)
+        time = self.stream.get_time()
+        vol, whitespace = self.stream.get_phrase(1)
 
-        time_hex = to_hex(parse_time(time))
+        time_hex = to_hex(time)
         vol_hex = self.parse_vol_hex(vol)
 
         self.put('$E8 {} {}{}'.format(time_hex, vol_hex, whitespace))
@@ -688,9 +689,10 @@ class MMKParser:
         self.put(self.state.y)
 
     def parse_ybend(self):
-        duration, pan, whitespace = self.stream.get_phrase(2)
+        duration = self.stream.get_time()
+        pan, whitespace = self.stream.get_phrase(1)
 
-        duration_hex = to_hex(parse_time(duration))
+        duration_hex = to_hex(duration)
         self.state.y = self.calc_pan(pan)
         pan_hex = to_hex(self.state.y)
 
@@ -706,27 +708,31 @@ class MMKParser:
     def parse_pbend(self):
         # Takes a fraction of a quarter note as input.
         # Converts to ticks.
-        delay, time, note, whitespace = self.stream.get_phrase(3)
+        delay = self.stream.get_time()
+        time = self.stream.get_time()
+        note, whitespace = self.stream.get_phrase(1)
 
-        delay_hex = to_hex(parse_time(delay))
-        time_hex = to_hex(parse_time(time))
+        delay_hex = to_hex(delay)
+        time_hex = to_hex(time)
 
         self.put('$DD {} {} {}{}'.format(delay_hex, time_hex, note, whitespace))
 
     # **** oscillatory effects ****
 
     def parse_vib(self):
-        delay, frequency, amplitude, whitespace = self.stream.get_phrase(3)
+        delay = self.stream.get_time()
+        frequency, amplitude, whitespace = self.stream.get_phrase(2)
 
-        delay_hex = to_hex(parse_time(delay))
+        delay_hex = to_hex(delay)
         freq_hex = to_hex(parse_frac(frequency))
 
         self.put('$DE {} {} {}{}'.format(delay_hex, freq_hex, amplitude, whitespace))
 
     def parse_trem(self):
-        delay, frequency, amplitude, whitespace = self.stream.get_phrase(3)
+        delay = self.stream.get_time()
+        frequency, amplitude, whitespace = self.stream.get_phrase(2)
 
-        delay_hex = to_hex(parse_time(delay))
+        delay_hex = to_hex(delay)
         freq_hex = to_hex(parse_frac(frequency))
 
         self.put('$E5 {} {} {}{}'.format(delay_hex, freq_hex, amplitude, whitespace))
