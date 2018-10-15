@@ -1,3 +1,4 @@
+import os
 import tempfile
 from contextlib import contextmanager
 from os import mkdir, chdir as cd
@@ -112,6 +113,8 @@ def test_sample_dir(filesystem_tree):
 # Source: wav_folder
 # Destination: amk_folder/samples/sample_subfolder
 
+@pytest.mark.skipif(os.name != 'nt',
+                    reason='test deadlocks when calling Wine process')
 @pytest.mark.parametrize("cfg_name,expected", [
     ('test.cfg', '$08 $00'),
     ('test2.cfg', '$03 $80'),
