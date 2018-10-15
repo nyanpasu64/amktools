@@ -75,6 +75,39 @@ def test_extension(mocker) -> None:
                 assert f.read() == parse_output
 
 
+def test_define():
+    in_str = '''\
+;
+%define x 1
+%x
+'''
+    p = mmkparser.MMKParser(in_str, tuning)
+    outstr = p.parse()
+    assert outstr == '''\
+;
+
+1
+'''
+
+
+@pytest.mark.xfail(strict=True)
+def test_define_failed():
+    in_str = '''\
+;
+%define x 1
+%define y v%x
+%y
+'''
+    p = mmkparser.MMKParser(in_str, tuning)
+    outstr = p.parse()
+    assert outstr == '''\
+;
+
+
+v1
+'''
+
+
 def test_instruments():
     in_str = '''#instruments
 {
