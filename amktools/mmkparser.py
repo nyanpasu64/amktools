@@ -553,6 +553,25 @@ class MMKParser:
             return True
         return False
 
+    # Save/restore state
+
+    def parse_save(self):
+        assert self.state is not self.orig_state
+        self.orig_state = copy.copy(self.state)
+        assert self.state is not self.orig_state
+
+    def parse_restore(self):
+        assert self.state is not self.orig_state
+
+        for key in MMKState.keys:
+            old = getattr(self.orig_state, key)
+            new = getattr(self.state, key)
+            if old != new:
+                self.put(key + old)
+        self.state = copy.copy(self.orig_state)
+
+        assert self.state is not self.orig_state
+
     # **** Numerator-fraction note lengths ****
 
     WORD_TO_BOOL = dict(
@@ -646,25 +665,6 @@ class MMKParser:
         vol_hex = self.parse_vol_hex(vol)
 
         self.put('$E8 {} {}{}'.format(time_hex, vol_hex, whitespace))
-
-    # Save/restore state
-
-    def parse_save(self):
-        assert self.state is not self.orig_state
-        self.orig_state = copy.copy(self.state)
-        assert self.state is not self.orig_state
-
-    def parse_restore(self):
-        assert self.state is not self.orig_state
-
-        for key in MMKState.keys:
-            old = getattr(self.orig_state, key)
-            new = getattr(self.state, key)
-            if old != new:
-                self.put(key + old)
-        self.state = copy.copy(self.orig_state)
-
-        assert self.state is not self.orig_state
 
     # **** pan ****
 
@@ -1073,7 +1073,6 @@ class MMKParser:
     def parse(self) -> str:
         # For exception debug
         try:
-            # Remove the header. TODO increment pos instead.
             while not self.stream.is_eof():
                 # Yeah, simpler this way. But could hide bugs/inconsistencies.
                 self.stream.skip_spaces(self.put)
