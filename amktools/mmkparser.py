@@ -397,8 +397,15 @@ class Stream:
                 raise MMKError('Integer expected, but no digits to parse')
         return parse_int_round(buffer)
 
-    def get_time(self) -> Optional[int]:
-        self.skip_spaces()
+    def get_time(self) -> Tuple[Optional[int], str]:
+        """ Obtains time and fetches trailing whitespace. """
+        dur = self._get_time()
+        whitespace = self.get_spaces(exclude='\n')
+        return dur, whitespace
+
+
+    def _get_time(self) -> Optional[int]:
+        """ Obtains time without getting trailing whitespace. """
         first = self.peek()
 
         if first == '=':
@@ -428,7 +435,7 @@ class Stream:
             # 1
             den = 1
 
-        dur = Fraction(num/den) * TICKS_PER_BEAT
+        dur = Fraction(num, den) * TICKS_PER_BEAT
         if int(dur) != dur:
             raise MMKError(
                 f'Invalid duration {Fraction(num/den)}, must be multiple of 1/48')
@@ -596,10 +603,11 @@ class MMKParser:
         """ Parse a fractional note, and output a tick count. """
         note_chr = self.stream.get_char()
 
-        nticks: Optional[int] = self.stream.get_time()
+        # nticks is either int or None.
+        nticks, whitespace = self.stream.get_time()
         time_str: str = self._format_time(nticks)
 
-        self.put(f'{note_chr}{time_str}')
+        self.put(f'{note_chr}{time_str}' + whitespace)
 
     @staticmethod
     def _format_time(ntick: Optional[int]) -> str:
@@ -659,7 +667,7 @@ class MMKParser:
     def parse_vbend(self):
         # Takes a fraction of a quarter note as input.
         # Converts to ticks.
-        time = self.stream.get_time()
+        time, _ = self.stream.get_time()
         vol, whitespace = self.stream.get_phrase(1)
 
         time_hex = to_hex(time)
@@ -689,7 +697,7 @@ class MMKParser:
         self.put(self.state.y)
 
     def parse_ybend(self):
-        duration = self.stream.get_time()
+        duration, _ = self.stream.get_time()
         pan, whitespace = self.stream.get_phrase(1)
 
         duration_hex = to_hex(duration)
@@ -708,8 +716,8 @@ class MMKParser:
     def parse_pbend(self):
         # Takes a fraction of a quarter note as input.
         # Converts to ticks.
-        delay = self.stream.get_time()
-        time = self.stream.get_time()
+        delay, _ = self.stream.get_time()
+        time, _ = self.stream.get_time()
         note, whitespace = self.stream.get_phrase(1)
 
         delay_hex = to_hex(delay)
@@ -720,7 +728,7 @@ class MMKParser:
     # **** oscillatory effects ****
 
     def parse_vib(self):
-        delay = self.stream.get_time()
+        delay, _ = self.stream.get_time()
         frequency, amplitude, whitespace = self.stream.get_phrase(2)
 
         delay_hex = to_hex(delay)
@@ -729,7 +737,7 @@ class MMKParser:
         self.put('$DE {} {} {}{}'.format(delay_hex, freq_hex, amplitude, whitespace))
 
     def parse_trem(self):
-        delay = self.stream.get_time()
+        delay, _ = self.stream.get_time()
         frequency, amplitude, whitespace = self.stream.get_phrase(2)
 
         delay_hex = to_hex(delay)
