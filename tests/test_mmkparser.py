@@ -225,3 +225,10 @@ def test_eof():
     in_str = '%reset'
     p = mmkparser.MMKParser(in_str, None)
     p.parse()
+
+
+@pytest.mark.xfail(reason='parse_int() causes error at EOF', strict=True)
+def test_command_eof():
+    in_str = 'v128'
+    p = mmkparser.MMKParser(in_str, None)
+    p.parse()

@@ -454,7 +454,7 @@ class MMKParser:
     # Returns parse (doesn't fetch trailing whitespace)
     def get_int(self, maybe=False) -> Optional[int]:
         buffer = ''
-        while self.peek().isdigit():
+        while self.peek().isdigit():    # FIXME breaks on EOF (test_command_eof)
             buffer += self.get_char()
 
         if not buffer and maybe:
