@@ -604,7 +604,12 @@ class MMKParser:
         note_chr = self.stream.get_char()
 
         # nticks is either int or None.
-        nticks, whitespace = self.stream.get_time()
+        try:
+            nticks, whitespace = self.stream.get_time()
+        except MMKError:
+            nticks = None
+            whitespace = ''
+
         time_str: str = self._format_time(nticks)
 
         self.put(f'{note_chr}{time_str}' + whitespace)
