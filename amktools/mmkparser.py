@@ -947,10 +947,9 @@ class MMKParser:
         ntick_playback = None
 
         if not is_instruments:
-            ntick_playback = self.stream.get_int()     # Only load the first N ticks
-            whitespace = self.stream.get_spaces(exclude='\n')
-            # ntick_playback, whitespace = self.stream.get_word()     # The sweep lasts for N ticks
-            # ntick_playback = int(parse_time(ntick_playback))
+            ntick_playback = self.stream.get_int(maybe=True)     # Only load the first N ticks
+            if ntick_playback is not None:
+                whitespace = self.stream.get_spaces(exclude='\n')
 
         meta = self.wavetable[name]
         waves = self._get_waves_in_group(name, ntick_playback)
