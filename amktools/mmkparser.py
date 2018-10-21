@@ -185,7 +185,7 @@ def vol_midi2smw(midi_vol):
     return round(smw_vol)
 
 
-WHITESPACE = ' \t\n\r\x0b\f,:'
+WHITESPACE = ' \t\n\r\x0b\f,'
 TERMINATORS = WHITESPACE + '"()[]'
 
 
