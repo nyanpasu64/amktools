@@ -1302,18 +1302,16 @@ SweepIter = Iterator[Tuple[int, SweepEvent]]
 class Sweepable(ABC):
     ntick: ClassVar[int]
 
-    # TODO pure function sweep_counter() like note_counter(), replaces start_from().
-    # iter(Sweepable), adds sum(previous ntick) to each Sweepable value.
-    # for tick, event in sweep: yield (tick + curr_ntick, event)
-
-    # total ntick must either be returned via StopIteration (discarded by heapq.merge())
-    # or computed externally (as is now).
-
-    @abstractmethod
-    def start_from(self, begin_tick: int) -> None: ...
-
     @abstractmethod
     def __iter__(self) -> SweepIter: ...
+
+
+def sweep_chain(sweeps: List[Sweepable]) -> SweepIter:
+    curr_ntick = 0
+    for sweep in sweeps:
+        for tick, event in sweep:
+            yield (curr_ntick + tick, event)
+        curr_ntick += sweep.ntick
 
 
 class PitchedSweep(Sweepable):
@@ -1321,10 +1319,6 @@ class PitchedSweep(Sweepable):
     def __init__(self, meta: WavetableMetadata):
         self.meta = meta
         self.ntick = meta.ntick
-        self.begin_tick: int = None
-
-    def start_from(self, begin_tick: int):
-        self.begin_tick = begin_tick
 
     def __iter__(self) -> SweepIter:
         """ Pitched sweep, with fixed wave/pitch rate. """
@@ -1354,7 +1348,7 @@ class PitchedSweep(Sweepable):
                 event.pitch = meta.pitches[env_idx]
                 next(pitch_ticks)
 
-            yield (self.begin_tick + tick, event)
+            yield (tick, event)
 
             tick = min(wave_ticks.peek(), pitch_ticks.peek())
 
@@ -1371,7 +1365,7 @@ class Note:
 NoteIter = Iterator[Tuple[int, Note]]
 
 
-def note_counter(notes: List[Note]) -> NoteIter:
+def note_chain(notes: List[Note]) -> NoteIter:
     tick = 0
     for note in notes:
         yield (tick, note)
@@ -1383,12 +1377,12 @@ LEGATO = '$F4 $01  '
 def parse_wave_sweep(self: MMKParser):
     """ Print a wavetable sweep at a fixed rate. """
     name, _ = self.stream.get_quoted()
-    ntick_note = self.stream.get_int()     # The sweep lasts for N ticks
+    note_ntick = self.stream.get_int()     # The sweep lasts for N ticks
 
     meta = self.wavetable[name]
 
     sweeps = [PitchedSweep(meta)]
-    notes = [Note(None, ntick_note)]
+    notes = [Note(None, note_ntick)]
 
     _put_sweep(self, sweeps, notes, meta)
 
@@ -1417,16 +1411,12 @@ def _put_sweep(
     self.put(LEGATO)   # Legato glues right+2, and unglues left+right.
 
     #### Arrange sweeps through time.
-    sweep_ntick = 0
-    for sweep in sweeps:
-        sweep.start_from(sweep_ntick)
-        sweep_ntick += sweep.ntick
-
+    sweep_ntick = sum(sweep.ntick for sweep in sweeps)
     # Generate iterator of all SweepEvents.
-    sweep_iter: SweepIter = itertools.chain.from_iterable(sweeps)
+    sweep_iter: SweepIter = sweep_chain(sweeps)
 
     # Generate iterator of all Notes
-    note_iter = note_counter(notes)
+    note_iter = note_chain(notes)
     note_ntick = sum(note.ntick for note in notes)
 
     #### Write notes.
