@@ -330,18 +330,24 @@ class Stream:
 
     TERMINATORS_REGEX = any_of(TERMINATORS)  # 0-character match
 
-    def get_word(self) -> Tuple[str, str]:
+    def get_word(self, terminators=None) -> Tuple[str, str]:
         """ Gets single word from file. If word begins with %, replaces with definition (used for parameters).
         Removes all leading spaces, but only trailing spaces up to the first \n.
         That helps preserve formatting.
+        :param terminators: Custom set of characters to include
         :return: (word, trailing whitespace)
         """
 
         self.skip_spaces()
 
-        word = self.get_until(self.TERMINATORS_REGEX, strict=False)
+        if terminators:
+            regex = re.compile(any_of(terminators))
+        else:
+            regex = self.TERMINATORS_REGEX
+
+        word = self.get_until(regex, strict=False)
         if not word:
-            raise MMKError('Tried to get word where none exists (invalid command or missing arguments?)')
+            raise ValueError('Tried to get word where none exists (invalid command or missing arguments?)')
         whitespace = self.get_spaces(exclude='\n')
 
         if word.startswith('%'):
@@ -363,13 +369,13 @@ class Stream:
         return words
 
 
-    def get_spaces(self, exclude='') -> str:
+    def get_spaces(self, exclude: Iterable[str] = '') -> str:
         whitespace = set(WHITESPACE) - set(exclude)
         not_whitespace = none_of(whitespace)    # 0-character match
         skipped = self.get_until(not_whitespace, strict=False)
         return skipped
 
-    def skip_spaces(self, put: Callable = None, exclude=''):
+    def skip_spaces(self, put: Callable = None, exclude: Iterable[str] = ''):
         skipped = self.get_spaces(exclude)
         if put:
             put(skipped)
