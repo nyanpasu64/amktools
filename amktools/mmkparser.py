@@ -160,10 +160,10 @@ def to_hex(in_frac):
 
 
 OCTAVE = 12
-notes = ['c', 'c+', 'd', 'd+', 'e', 'f', 'f+', 'g', 'g+', 'a', 'a+', 'b']
+note_names = ['c', 'c+', 'd', 'd+', 'e', 'f', 'f+', 'g', 'g+', 'a', 'a+', 'b']
 def format_note(midi: int):
     octave = (midi // OCTAVE) - 1
-    note = notes[midi % OCTAVE]
+    note = note_names[midi % OCTAVE]
     return f'o{octave}{note}'
 
 
