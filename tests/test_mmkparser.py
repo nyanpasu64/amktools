@@ -231,58 +231,89 @@ def test_sweep():
             fps=None,
             wave_sub=2,
             env_sub=1,
-            pitches=[60.0, 60.5, 61.0, 61.5]
+            pitches=[60.0, 60.5, 61.0, 61.5],
         )
     meta_dict = {
-        'wave1': metadata(),
-        'wave2': metadata(),
+        'untrunc': metadata(),
+        'truncSilent': metadata(),
     }
     in_str = '''\
 #samples
 {
 	%silent "silent.brr"
-	%wave_group "wave1"; make sure comments work
-	%wave_group "wave2" 1 silent
+	%wave_group "untrunc"; make sure comments work
+	%wave_group "truncSilent" 1 silent
 }
 #instruments
 {
 	%instr "silent.brr" $00 $00 $00 $01 $00
-	%wave_group "wave1" $00 $00 $00; make sure comments work
-	%wave_group "wave2" $00 $00 $00
+	%wave_group "untrunc" $00 $00 $00; make sure comments work
+	%wave_group "truncSilent" $00 $00 $00
 }
 #0
+%wave_sweep "untrunc" 96
+%wave_sweep "truncSilent" 96
+%wave_sweep "untrunc" 1
+%wave_sweep "truncSilent" 1
+; avert crash on eof
 '''
-# %wave_sweep "wave1" 96
-# %wave_sweep "wave2" 96
-# %wave_sweep "wave1" 1
-# %wave_sweep "wave2" 1
     p = mmkparser.MMKParser(in_str, tuning, meta_dict)
     outstr = p.parse()
 
     # %wave_group produces "ugly" missing indentation, so ignore all whitespace.
-    words = outstr.split()
+    words = outstr.lower().split()
     tune_val = f'${metadata().nsamp//16:02} $00'
-    assert words == f'''\
+    assert words == '\n'.join([f'''\
 #samples
 {{
 	"silent.brr"
-	"wave1-000.brr"; make sure comments work
-	"wave1-001.brr"
-	"wave2-000.brr"
+	"untrunc-000.brr"; make sure comments work
+	"untrunc-001.brr"
+	"truncSilent-000.brr"
 }}
 #instruments
 {{
 	"silent.brr" $00 $00 $00 $01 $00
-	"wave1-000.brr" $00 $00 $00 {tune_val}; make sure comments work
-	"wave1-001.brr" $00 $00 $00 {tune_val}
-	"wave2-000.brr" $00 $00 $00 {tune_val}
+	"untrunc-000.brr" $00 $00 $00 {tune_val}; make sure comments work
+	"untrunc-001.brr" $00 $00 $00 {tune_val}
+	"truncSilent-000.brr" $00 $00 $00 {tune_val}
 }}
-#0
-'''.split()
-# %wave_sweep "wave1" 96
-# %wave_sweep "wave2" 96
-# %wave_sweep "wave1" 1
-# %wave_sweep "wave2" 1
+#0''',
+
+# %wave_sweep "untrunc" 96
+# ADSR        silent.brr+tune    legato
+'$ED $7d $e0     $f3 $00 $04     $F4 $01',
+#   smp[#4]=01 detune=00       detune=80
+''' $f6 $04 $01  $ee $00  o4c=1  $ee $80  o4c=1
+    $f6 $04 $02  $ee $00  o4c+=1 $ee $80  o4c+=93''',
+# unlegato, detune=0
+'''
+$F4 $01     $ee $00''',
+
+# %wave_sweep "truncSilent" 96
+'''
+$ED $7d $e0  $f3 $00 $04    $F4 $01
+    $f6 $04 $03  $ee $00  o4c=1''',
+#   GAIN fadeout
+''' $FA $01 $98  o4c=95
+$F4 $01     $ee $00''',
+
+# %wave_sweep "untrunc" 1
+'''$ED $7d $e0  $f3 $00 $04    $F4 $01
+    $f6 $04 $01  $ee $00  o4c=1
+$F4 $01     $ee $00''',
+
+# %wave_sweep "truncSilent" 1
+'''
+$ED $7d $e0  $f3 $00 $04    $F4 $01
+    $f6 $04 $03  $ee $00  o4c=1
+$FA $01 $98
+$F4 $01     $ee $00
+
+; avert crash on eof
+''']).lower().split()
+#$ED $7d $e0  $f3 $00 $04    $F4 $01  $f6 $04 $01  $ee $00  o4c=1  $ee $80  o4c=1  $f6 $04 $02  $ee $81  o4d=1
+#ADSR         silent.brr+tune LEGATO  smp#[ch]=xx  detune00 note
 
 
 
