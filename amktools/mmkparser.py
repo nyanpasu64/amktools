@@ -6,22 +6,29 @@
 
 import argparse
 import copy
+import heapq
+import itertools
+import math
 import os
 import re
 import sys
+from abc import abstractmethod, ABC
 from contextlib import contextmanager
 from fractions import Fraction
 from io import StringIO
 from pathlib import Path
-from typing import Dict, List, Union, Pattern, Tuple, Callable, Optional, ClassVar
+from typing import Dict, List, Union, Pattern, Tuple, Callable, Optional, ClassVar, \
+    Iterator, TypeVar
 
+import dataclasses
 from dataclasses import dataclass, field
+from more_itertools import peekable
 from ruamel.yaml import YAML
 
 # We cannot identify instrument macros.
 # The only way to fix that would be to expand macros, which would both complicate the program and
 # make the generated source less human-readable.
-from amktools.util import ceildiv
+from amktools.util import ceildiv, coalesce
 
 
 class MMKError(ValueError):
@@ -202,7 +209,7 @@ def none_of(chars) -> Pattern:
 class WavetableMetadata:
     nsamp: int
     ntick: int
-    fps: float
+    fps: float      # Unused. %wave_sweep (constant rate) assumes fps = ticks/second.
     wave_sub: int   # Each wave is repeated `wave_sub` times.
     env_sub: int    # Each volume/frequency entry is repeated `env_sub` times.
 
@@ -987,7 +994,7 @@ class MMKParser:
 
     WAVE_GROUP_TEMPLATE = '{}-{:03}.brr'
 
-    def _get_waves_in_group(self, name: str, ntick_playback: int) -> List[str]:
+    def _get_waves_in_group(self, name: str, ntick_playback: Optional[int]) -> List[str]:
         """ Returns a list of N BRR wave names. """
         # if name in self.wave_groups:
         #     return self.wave_groups[name]
@@ -1005,13 +1012,12 @@ class MMKParser:
         return wave_names
 
     # Wave sweeps
-    # TODO swap order
+    _REG = 0xF6
+    def put_load_sample(self, smp_idx: int):
+        self.put_hex(self._REG, self._get_wave_reg(), smp_idx)
+
     def _get_wave_reg(self):
         return 0x10 * self.curr_chan + 0x04
-
-    _REG = 0xF6
-    def _put_load_sample(self, smp_idx: int):
-        self.put_hex(self._REG, self._get_wave_reg(), smp_idx)
 
     # Echo and FIR
 
@@ -1277,67 +1283,225 @@ class MMKParser:
 
 #### %wave_sweep
 
+T = TypeVar('T')
+Timed = Tuple[int, T]
+
+
+@dataclass
+class SweepEvent:
+    sample_idx: Optional[int]
+    pitch: Optional[float]
+
+    def __bool__(self):
+        return any(x is not None for x in dataclasses.astuple(self))
+
+
+SweepIter = Iterator[Tuple[int, SweepEvent]]
+
+
+class Sweepable(ABC):
+    ntick: ClassVar[int]
+
+    # TODO pure function sweep_counter() like note_counter(), replaces start_from().
+    # iter(Sweepable), adds sum(previous ntick) to each Sweepable value.
+    # for tick, event in sweep: yield (tick + curr_ntick, event)
+
+    # total ntick must either be returned via StopIteration (discarded by heapq.merge())
+    # or computed externally (as is now).
+
+    @abstractmethod
+    def start_from(self, begin_tick: int) -> None: ...
+
+    @abstractmethod
+    def __iter__(self) -> SweepIter: ...
+
+
+class PitchedSweep(Sweepable):
+    """ Pitched sweep, with fixed wave/pitch rate. """
+    def __init__(self, meta: WavetableMetadata):
+        self.meta = meta
+        self.ntick = meta.ntick
+        self.begin_tick: int = None
+
+    def start_from(self, begin_tick: int):
+        self.begin_tick = begin_tick
+
+    def __iter__(self) -> SweepIter:
+        """ Pitched sweep, with fixed wave/pitch rate. """
+        meta = self.meta
+
+        def tick_range(skip):
+            return peekable(itertools.chain(
+                range(0, meta.ntick, skip),
+                [math.inf],
+            ))
+
+        wave_ticks = tick_range(meta.wave_sub)
+        pitch_ticks = tick_range(meta.env_sub)
+
+        tick = 0
+
+        while tick < meta.ntick:
+            event = SweepEvent(None, None)
+
+            # Wave envelope
+            if tick == wave_ticks.peek():
+                event.sample_idx = tick // meta.wave_sub
+                next(wave_ticks)
+
+            if tick == pitch_ticks.peek():
+                env_idx = tick // meta.env_sub
+                event.pitch = meta.pitches[env_idx]
+                next(pitch_ticks)
+
+            yield (self.begin_tick + tick, event)
+
+            tick = min(wave_ticks.peek(), pitch_ticks.peek())
+
+
+@dataclass
+class Note:
+    """ A note used in %wave_sweep and %sweep{.
+    If `midi_pitch` is set, it overrides the sweep's pitch. """
+
+    midi_pitch: Optional[int]
+    ntick: int
+
+
+NoteIter = Iterator[Tuple[int, Note]]
+
+
+def note_counter(notes: List[Note]) -> NoteIter:
+    tick = 0
+    for note in notes:
+        yield (tick, note)
+        tick += note.ntick
+
+
 DETUNE = 0xEE
 LEGATO = '$F4 $01  '
 def parse_wave_sweep(self: MMKParser):
     """ Print a wavetable sweep at a fixed rate. """
     name, _ = self.stream.get_quoted()
     ntick_note = self.stream.get_int()     # The sweep lasts for N ticks
+
     meta = self.wavetable[name]
 
-    # Load silent instrument with proper tuning
+    sweeps = [PitchedSweep(meta)]
+    notes = [Note(None, ntick_note)]
+
+    _put_sweep(self, sweeps, notes, meta)
+
+
+def _put_sweep(
+        self: MMKParser,
+        sweeps: List[Sweepable],
+        notes: List[Note],
+        meta: WavetableMetadata,
+):
+    """ Write a wavetable sweep. Duration is determined by `notes`.
+    If notes[].midi_pitch exists, overrides sweeps[].pitch.
+
+    Used by %wave_sweep and %sweep{."""
+
+    # Enable ADSR fade-in
     self.parse_str('%adsr -3,-1,full,0  ')
+
+    # Load silent instrument with proper tuning
     if self.silent_idx is None:
         raise MMKError('cannot %wave_sweep without silent sample defined')
-    self.put_hex(0xf3, self.silent_idx, meta.tuning)
+    self.put_hex(0xf3, self.silent_idx, meta.tuning)  # FIXME I hope this clears fine tuning
+
+    # Enable legato
     self.put('  ')
     self.put(LEGATO)   # Legato glues right+2, and unglues left+right.
 
+    #### Arrange sweeps through time.
+    sweep_ntick = 0
+    for sweep in sweeps:
+        sweep.start_from(sweep_ntick)
+        sweep_ntick += sweep.ntick
+
+    # Generate iterator of all SweepEvents.
+    sweep_iter: SweepIter = itertools.chain.from_iterable(sweeps)
+
+    # Generate iterator of all Notes
+    note_iter = note_counter(notes)
+    note_ntick = sum(note.ntick for note in notes)
+
+    #### Write notes.
+    """
+    # Each note follows a pitch/wave event. It is printed (with the proper
+    # begin/end ticks) when the next pitch/wave event begins.
+
+    Workflow: If a note lasts from t0 to t1, the following occurs:
+    - end_note(t0)
+    - SweepEvent assigns sweep_pitch[t0]
+    - and/or Note assigns note_pitch[t0]
+    - end_note(t1) writes a note from t0 to t1. midi_pitch() == end of t0.
+    """
+
+    note_begin = 0
+    def end_note(note_end):
+        nonlocal note_begin
+        if note_end > note_begin:
+            self.put(f'{format_note(midi_pitch())}={note_end - note_begin}  ')
+            note_begin = note_end
+
     # Pitch tracking
-    midi = 0   # MIDI
+    """ TODO:
+    - Add datatype for rests
+    - Use ties unless changing pitch
+        - Add option to disable legato
+    - Add support for arbitrary events (volume, pan)
+    - Add support for retriggering wave envelope
+    """
+    note_pitch: int = None
+    sweep_pitch: int = None
+    def midi_pitch():
+        try:
+            return coalesce(note_pitch, sweep_pitch)
+        except TypeError:
+            raise ValueError('_put_sweep missing both note_pitch and sweep_pitch')
 
-    # Each note follows a pitch/wave event. It is printed with the
-    # proper duration, when the next pitch/wave event begins.
-    prev_tick = 0
-    def print_note():
-        nonlocal prev_tick
-        if tick > prev_tick:
-            self.put(f'{format_note(midi)}={tick - prev_tick}  ')
-            prev_tick = tick
+    sweep_note_iter = peekable(
+        heapq.merge(sweep_iter, note_iter, key=lambda tup: tup[0])
+    )
 
-    ntick_instr = min(ntick_note, meta.ntick)
-    for tick in range(ntick_instr):
-        # Wave envelope
-        if tick % meta.wave_sub == 0:
-            wave_idx = tick // meta.wave_sub
-            print_note()
-            # Print wave
-            self._put_load_sample(meta.smp_idx + wave_idx)
+    for time, event in sweep_note_iter:  # type: int, Union[SweepEvent, Note]
+        if time >= note_ntick:
+            break
+        end_note(time)
 
-        # Pitch envelope
-        if tick % meta.env_sub == 0:
-            env_idx = tick // meta.env_sub
-            print_note()
+        if isinstance(event, SweepEvent):
+            # Wave envelope
+            if event.sample_idx is not None:
+                self.put_load_sample(meta.smp_idx + event.sample_idx)
+            # Pitch envelope
+            if event.pitch is not None:
+                # Decompose sweep pitch into integer and detune.
+                sweep_pitch = int(event.pitch)
+                detune = event.pitch - sweep_pitch
 
-            # Print pitch
-            _pitch = meta.pitches[env_idx]
-            midi = int(_pitch)
-            detune = _pitch - midi
-            self.put_hex(DETUNE, int(detune * 256))
-            # midi is used by print_note()
+                # Write detune value immediately (begins at following note).
+                self.put_hex(DETUNE, int(detune * 256))
 
-    if meta.silent:
-        tick = ntick_instr
-        print_note()
+        elif isinstance(event, Note):
+            note_pitch = event.midi_pitch
 
-        # GAIN starts when the right note starts.
+        else:
+            raise TypeError(f'invalid sweep event type={type(event)}, programmer error')
+
+    if meta.silent and sweep_ntick < note_ntick:
+        # Add GAIN fadeout.
+        end_note(sweep_ntick)
+        # GAIN starts when the following note starts.
         self.parse_str('%gain down $18  ')
-        tick = ntick_note
-        print_note()
-    else:
-        tick = ntick_note
-        print_note()
 
+    # End final note.
+    end_note(note_ntick)
+
+    # Cleanup: disable legato and detune.
     self.put(LEGATO)   # Legato deactivates immediately.
     self.put_hex(DETUNE, 0)
 

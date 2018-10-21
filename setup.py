@@ -10,7 +10,7 @@ setup(
     author='nyanpasu64',
     author_email='',
     description='Preprocessor/compiler and automated sample extractor/tuner for AddMusicK',
-    install_requires=['sf2utils', 'plumbum', 'ruamel.yaml', 'click',
+    install_requires=['sf2utils', 'plumbum', 'ruamel.yaml', 'click', 'more-itertools'
               'dataclasses;python_version<"3.7"'],
     tests_require=['pytest', 'pytest-mock', 'pytest-pycharm']
 )
