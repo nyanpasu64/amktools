@@ -21,7 +21,7 @@ from ruamel.yaml import YAML
 # We cannot identify instrument macros.
 # The only way to fix that would be to expand macros, which would both complicate the program and
 # make the generated source less human-readable.
-from amktools.utils.math import ceildiv
+from amktools.util import ceildiv
 
 
 class MMKError(ValueError):
