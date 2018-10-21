@@ -398,14 +398,18 @@ class Stream:
         return parse_int_round(buffer)
 
     def get_time(self) -> Tuple[Optional[int], str]:
-        """ Obtains time and fetches trailing whitespace. """
+        """ Obtains time and fetches trailing whitespace.
+
+        Returns (nticks, whitespace). """
         dur = self._get_time()
         whitespace = self.get_spaces(exclude='\n')
         return dur, whitespace
 
 
     def _get_time(self) -> Optional[int]:
-        """ Obtains time without getting trailing whitespace. """
+        """ Obtains time without getting trailing whitespace.
+
+        Returns nticks. """
         first = self.peek()
 
         if first == '=':
@@ -454,6 +458,9 @@ class MMKState:
     y: str = '10'
 
     keys: ClassVar = ['v', 'y']
+
+
+# TODO move parsers from methods to functions
 
 
 class MMKParser:
@@ -998,71 +1005,8 @@ class MMKParser:
         wave_names = [self.WAVE_GROUP_TEMPLATE.format(name, i) for i in range(nwave)]
         return wave_names
 
-    DETUNE = 0xEE
-    SLUR = '$F4 $01  '
-    def parse_wave_sweep(self):
-        """ Print a wavetable sweep. """
-        name, _ = self.stream.get_quoted()
-        ntick_note = self.stream.get_int()     # The sweep lasts for N ticks
-        meta = self.wavetable[name]
-
-        # Load silent instrument with proper tuning
-        self.parse_str('%adsr -3,-1,full,0  ')
-        if self.silent_idx is None:
-            raise MMKError('cannot %wave_sweep without silent sample defined')
-        self.put_hex(0xf3, self.silent_idx, meta.tuning)
-        self.put('  ')
-        self.put(self.SLUR)   # Legato glues right+2, and unglues left+right.
-
-        # Pitch tracking
-        midi = 0   # MIDI
-
-        # Each note follows a pitch/wave event. It is printed with the
-        # proper duration, when the next pitch/wave event begins.
-        prev_tick = 0
-        def print_note():
-            nonlocal prev_tick
-            if tick > prev_tick:
-                self.put(f'{format_note(midi)}={tick - prev_tick}  ')
-                prev_tick = tick
-
-        ntick_instr = min(ntick_note, meta.ntick)
-        wave_idx = 0
-        for tick in range(ntick_instr):
-            # Wave envelope
-            if tick % meta.wave_sub == 0:
-                wave_idx = tick // meta.wave_sub
-                print_note()
-                # Print wave
-                self._put_load_sample(meta.smp_idx + wave_idx)
-
-            # Pitch envelope
-            if tick % meta.env_sub == 0:
-                env_idx = tick // meta.env_sub
-                print_note()
-
-                # Print pitch
-                _pitch = meta.pitches[env_idx]
-                midi = int(_pitch)
-                detune = _pitch - midi
-                self.put_hex(self.DETUNE, int(detune * 256))
-                # midi is used by print_note()
-
-        if meta.silent:
-            tick = ntick_instr
-            print_note()
-
-            # GAIN starts when the right note starts.
-            self.parse_str('%gain down $18  ')
-            tick = ntick_note
-            print_note()
-        else:
-            tick = ntick_note
-            print_note()
-
-        self.put(self.SLUR)   # Legato deactivates immediately.
-        self.put_hex(self.DETUNE, 0)
-
+    # Wave sweeps
+    # TODO swap order
     def _get_wave_reg(self):
         return 0x10 * self.curr_chan + 0x04
 
@@ -1207,7 +1151,7 @@ class MMKParser:
 
                     # Wavetable sweep
                     elif command == 'wave_sweep':
-                        self.parse_wave_sweep()
+                        parse_wave_sweep(self)
 
                     # Echo and FIR
                     elif command == 'fir':
@@ -1330,6 +1274,74 @@ class MMKParser:
         'silent': lambda self: self.parse_silent(),
         'wave_group': lambda self: self.parse_wave_group(is_instruments=False),
     })
+
+
+#### %wave_sweep
+
+DETUNE = 0xEE
+LEGATO = '$F4 $01  '
+def parse_wave_sweep(self: MMKParser):
+    """ Print a wavetable sweep at a fixed rate. """
+    name, _ = self.stream.get_quoted()
+    ntick_note = self.stream.get_int()     # The sweep lasts for N ticks
+    meta = self.wavetable[name]
+
+    # Load silent instrument with proper tuning
+    self.parse_str('%adsr -3,-1,full,0  ')
+    if self.silent_idx is None:
+        raise MMKError('cannot %wave_sweep without silent sample defined')
+    self.put_hex(0xf3, self.silent_idx, meta.tuning)
+    self.put('  ')
+    self.put(LEGATO)   # Legato glues right+2, and unglues left+right.
+
+    # Pitch tracking
+    midi = 0   # MIDI
+
+    # Each note follows a pitch/wave event. It is printed with the
+    # proper duration, when the next pitch/wave event begins.
+    prev_tick = 0
+    def print_note():
+        nonlocal prev_tick
+        if tick > prev_tick:
+            self.put(f'{format_note(midi)}={tick - prev_tick}  ')
+            prev_tick = tick
+
+    ntick_instr = min(ntick_note, meta.ntick)
+    for tick in range(ntick_instr):
+        # Wave envelope
+        if tick % meta.wave_sub == 0:
+            wave_idx = tick // meta.wave_sub
+            print_note()
+            # Print wave
+            self._put_load_sample(meta.smp_idx + wave_idx)
+
+        # Pitch envelope
+        if tick % meta.env_sub == 0:
+            env_idx = tick // meta.env_sub
+            print_note()
+
+            # Print pitch
+            _pitch = meta.pitches[env_idx]
+            midi = int(_pitch)
+            detune = _pitch - midi
+            self.put_hex(DETUNE, int(detune * 256))
+            # midi is used by print_note()
+
+    if meta.silent:
+        tick = ntick_instr
+        print_note()
+
+        # GAIN starts when the right note starts.
+        self.parse_str('%gain down $18  ')
+        tick = ntick_note
+        print_note()
+    else:
+        tick = ntick_note
+        print_note()
+
+    self.put(LEGATO)   # Legato deactivates immediately.
+    self.put_hex(DETUNE, 0)
+
 
 if __name__ == '__main__':
     ret = main(sys.argv[1:])
