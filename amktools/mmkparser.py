@@ -938,19 +938,33 @@ class MMKParser:
     # **** #instruments ****
 
     def parse_instr(self):
-        with self.capture() as output, self.until_comment():
+        """ Parse an instrument definition. Define a name for the instrument number.
+        "foo.brr"
+        - %foo=@30
+
+        Strips off leading
+        bar="foo.brr"
+        - %bar=@31
+        """
+        with self.capture() as fout, self.until_comment():
             self.parse_instruments()
-            val = output.getvalue()
-        self.put(val)
+            output = fout.getvalue()
 
-        with self.set_input(val):
-            instr_path, whitespace = self.stream.get_quoted()
+        stream = Stream(output, self.defines)
+        if output[0] == '"':
+            self.put(output)
 
-        instr_path = Path(instr_path)
-        if instr_path.suffix != '.brr':
-            raise MMKError(f'Invalid instrument sample {instr_path} not .brr file')
+            instr_path, whitespace = stream.get_quoted()
+            instr_path = Path(instr_path)
+            if instr_path.suffix != '.brr':
+                raise MMKError(f'Invalid instrument sample {instr_path} not .brr file')
+            instr_name = instr_path.stem
 
-        instr_name = instr_path.stem
+        else:
+            instr_name = stream.get_until('=', strict=True)  # seeks past char
+            instr_def = stream.get_line()
+            self.put(instr_def)
+
         self.defines[instr_name] = f'@{self.instr_num}'
 
         self.instr_num += 1
@@ -959,6 +973,7 @@ class MMKParser:
         self.smp_num += 1
         # "test.brr" $ad $sr $gain $tune $tune
 
+        self.stream.get_until(any_of('"'), strict=True)
         brr, whitespace = self.stream.get_quoted()
 
         if self.tuning is None:
