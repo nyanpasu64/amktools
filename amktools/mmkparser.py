@@ -18,7 +18,7 @@ from fractions import Fraction
 from io import StringIO
 from pathlib import Path
 from typing import Dict, List, Union, Pattern, Tuple, Callable, Optional, ClassVar, \
-    Iterator, TypeVar
+    Iterator, TypeVar, Iterable
 
 import dataclasses
 from dataclasses import dataclass, field
@@ -166,12 +166,41 @@ def to_hex(in_frac):
     return value
 
 
+def parse_range(sweep_str: str) -> range:
+    error = MMKError(f'{sweep_str} invalid, must be [x,y] or [x,y)')
+
+    begin_end = sweep_str.split(',')
+    if len(begin_end) != 2:
+        raise error
+    begin_str, end_str = begin_end
+
+    # [Begin interval
+    if begin_str[0] != '[':
+        raise error
+    begin_idx = parse_int_hex(begin_str[1:])
+
+    # End interval)
+    close_paren = end_str[-1]
+    if close_paren not in '])':
+        raise error
+    end_idx = parse_int_hex((end_str[:-1]))
+
+    # Make Python range() act like a closed interval.
+    delta = int(math.copysign(1, end_idx - begin_idx))
+    if close_paren == ']':
+        end_idx += delta
+
+    return range(begin_idx, end_idx, delta)
+
+
 OCTAVE = 12
 note_names = ['c', 'c+', 'd', 'd+', 'e', 'f', 'f+', 'g', 'g+', 'a', 'a+', 'b']
 def format_note(midi: int):
     octave = (midi // OCTAVE) - 1
     note = note_names[midi % OCTAVE]
     return f'o{octave}{note}'
+
+note2pitch = {note: idx for idx, note in enumerate(note_names)}
 
 
 TICKS_PER_BEAT = 0x30
@@ -496,6 +525,7 @@ class MMKParser:
             viboff='$DF',
             tremoff='$E5 $00 $00 $00',
             slur='$F4 $01',
+            legato='$F4 $01',
             light='$F4 $02',
             restore_instr='$F4 $09'
         )  # type: Dict[str, str]
@@ -1164,6 +1194,9 @@ class MMKParser:
                     elif command == 'wave_sweep':
                         parse_wave_sweep(self)
 
+                    elif command == 'sweep{':
+                        parse_parametric_sweep(self)
+
                     # Echo and FIR
                     elif command == 'fir':
                         self.parse_fir()
@@ -1500,6 +1533,135 @@ def _put_sweep(
     # Cleanup: disable legato and detune.
     self.put(LEGATO)   # Legato deactivates immediately.
     self.put_hex(DETUNE, 0)
+
+
+### %sweep{
+
+class LinearSweep(Sweepable):
+    def __init__(self, sweep: range, ntick: int):
+        self.sweep = sweep  # Range of sweep
+        self.nsweep = len(sweep)
+
+        self.ntick = ntick
+
+    def __iter__(self) -> SweepIter:
+        """ Unpitched linear sweep, with fixed endpoints and duration.
+        Created using the `[a,b) time` notation.
+        """
+        prev_tick = -1
+        for sweep_idx in range(self.nsweep):
+            tick = ceildiv(sweep_idx * self.ntick, self.nsweep)
+            if tick > prev_tick:
+                event = SweepEvent(self.sweep[sweep_idx], None)
+                yield (tick, event)
+
+
+ONLY_WHITESPACE = ' \t\n\r\x0b\f'
+
+def parse_parametric_sweep(self: MMKParser):
+    """ Read parameters, and print a sweep with fixed duration.
+
+    sweep{ "name"
+        TODO: =   # in real time
+        [begin,end) beats   # Increasing intervals have step 1.
+        [,end] beats        # Decreasing intervals have step -1.
+        :
+
+        # Duration in beats, separate from outside lxx events.
+        l/4
+        o4 c1 c/2 c c
+
+        # Loops are unrolled.
+        [c <b >]5
+    }
+    """
+    stream = self.stream
+    stream.skip_spaces()
+
+    # Get name
+    name, _ = stream.get_quoted()
+    meta = self.wavetable[name]
+
+    # Get sweep, duration pairs
+    sweeps = []
+    while stream.peek() != ':':
+        sweep_str, _ = stream.get_word(ONLY_WHITESPACE)
+        if sweep_str == '=':
+            raise MMKError('sweep{ = at fixed rate is not supported yet')
+
+        # [x,y)
+        sweep_range = parse_range(sweep_str)
+
+        # Read sweep duration
+        ntick, _ = stream.get_time()
+
+        sweeps.append(LinearSweep(
+            sweep_range,
+            ntick
+        ))
+        stream.skip_spaces()
+        # stream.skip_spaces(exclude=set(WHITESPACE) - set(ONLY_WHITESPACE))
+
+    # I can't remember why I ever marked colons as whitespace...
+    # It's not used in standard AMK MML.
+    # Using colon as a syntactic separator is creating a world of pain.
+    _separator = stream.get_char()
+    stream.skip_spaces()
+
+    # Get notes
+    notes = []
+    note_chars = set('abcdefg')
+
+    octave = None
+    default_ntick = None
+
+    while stream.peek() != '}':
+        c = stream.get_char()
+
+        # noinspection PyUnreachableCode
+        if False: pass
+
+        # octave
+        elif c == 'o':
+            octave = int(stream.get_char())
+        elif c == '>':
+            octave += 1
+        elif c == '<':
+            octave -= 1
+        # note length
+        elif c == 'l':
+            default_ntick, _ = stream.get_time()
+        # notes
+        elif c in note_chars:
+
+            # Note pitch
+            # TODO note to midi function?
+            sharp_flat = stream.peek()
+            if c + sharp_flat in note2pitch:
+                note_name = c + sharp_flat
+                stream.skip_chars(1)
+            else:
+                note_name = c
+            if octave is None:
+                raise MMKError('You must assign octave within sweep{}')
+            midi_pitch = note2pitch[note_name] + OCTAVE * (octave + 1)
+
+            # Note duration
+            ntick, _ = stream.get_time()
+            try:
+                ntick = coalesce(ntick, default_ntick)
+            except TypeError:
+                raise MMKError(
+                    'You must assign lxx within sweep{} before entering untimed notes')
+
+            notes.append(Note(midi_pitch, ntick))
+
+        stream.skip_spaces()
+
+    # Eat close }
+    stream.skip_chars(1)
+
+    _put_sweep(self, sweeps, notes, meta)
 
 
 if __name__ == '__main__':

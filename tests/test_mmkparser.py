@@ -223,16 +223,18 @@ $fa $01 $e3
 '''
 
 
+def metadata():
+    return mmkparser.WavetableMetadata(
+        nsamp=64,
+        ntick=4,
+        fps=None,
+        wave_sub=2,
+        env_sub=1,
+        pitches=[60.0, 60.5, 61.0, 61.5],
+    )
+
+
 def test_sweep():
-    def metadata():
-        return mmkparser.WavetableMetadata(
-            nsamp=64,
-            ntick=4,
-            fps=None,
-            wave_sub=2,
-            env_sub=1,
-            pitches=[60.0, 60.5, 61.0, 61.5],
-        )
     meta_dict = {
         'untrunc': metadata(),
         'truncSilent': metadata(),
@@ -311,9 +313,10 @@ $F4 $01     $ee $00
 
 ; avert crash on eof
 ''']).lower().split()
-#$ED $7d $e0  $f3 $00 $04    $F4 $01  $f6 $04 $01  $ee $00  o4c=1  $ee $80  o4c=1  $f6 $04 $02  $ee $81  o4d=1
-#ADSR         silent.brr+tune LEGATO  smp#[ch]=xx  detune00 note
 
+
+def test_parametric_sweep():
+    pass    # TODO
 
 
 def test_terminator():
