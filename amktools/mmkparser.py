@@ -652,6 +652,8 @@ class MMKParser:
     def parse_note(self):
         """ Parse a fractional note, and output a tick count. """
         note_chr = self.stream.get_char()
+        if self.stream.peek() in '+-':
+            note_chr += self.stream.get_char()
 
         # nticks is either int or None.
         try:
