@@ -876,6 +876,11 @@ class MMKParser:
         self.put(fmt.format(to_hex(a), to_hex(b)))
         self.put(whitespace)
 
+    def parse_exp(self, instr: bool):
+        release, whitespace = self.stream.get_word()
+        with self.set_input(f'-1,-1,full,' + release + whitespace):
+            self.parse_adsr(instr)
+
     @staticmethod
     def _index_check(caption, val, end):
         if val < 0:
@@ -1189,6 +1194,9 @@ class MMKParser:
                     elif command == 'adsr':
                         self.parse_adsr(instr=False)
 
+                    elif command == 'exp':
+                        self.parse_exp(instr=False)
+
                     elif command == 'gain':
                         self.parse_gain(instr=False)
 
@@ -1311,6 +1319,7 @@ class MMKParser:
         'tune': lambda self: self.parse_tune(),
         'gain': lambda self: self.parse_gain(instr=True),
         'adsr': lambda self: self.parse_adsr(instr=True),
+        'exp': lambda self: self.parse_exp(instr=True),
         'wave_group': lambda self: self.parse_wave_group(is_instruments=True),
     })
 
