@@ -1445,7 +1445,10 @@ def _put_sweep(
     # Load silent instrument with proper tuning
     if self.silent_idx is None:
         raise MMKError('cannot %wave_sweep without silent sample defined')
-    self.put_hex(0xf3, self.silent_idx, meta.tuning)  # FIXME I hope this clears fine tuning
+    # @0 to zero out fine-tuning
+    self.put(self.defines['silent'])
+    # Set coarse tuning
+    self.put_hex(0xf3, self.silent_idx, meta.tuning)
 
     # Enable legato
     self.put('  ')
