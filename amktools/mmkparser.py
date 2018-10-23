@@ -415,6 +415,7 @@ class Stream:
             put(skipped)
 
     def get_line_spaces(self):
+        # TODO use function more
         return self.get_spaces(exclude='\n')
 
 
@@ -429,12 +430,13 @@ class Stream:
         return quoted, whitespace
 
     def get_line(self):
+        # TODO add "put" parameter
         return self.get_until(any_of('\n'), strict=False)
 
     # Returns parse (doesn't fetch trailing whitespace)
     def get_int(self, maybe=False) -> Optional[int]:
         buffer = ''
-        while self.peek().isdigit():    # FIXME breaks on EOF (test_command_eof)
+        while (not self.is_eof()) and self.peek().isdigit():    # FIXME breaks on EOF (test_command_eof)
             buffer += self.get_char()
 
         if not buffer:
@@ -862,7 +864,7 @@ class MMKParser:
     # **** meh ****
 
     def parse_comment(self):
-        self.stream.skip_until('\n', self.put)
+        self.put(self.stream.get_until(any_of('\n'), strict=False))
 
     # Multi-word parsing
 
