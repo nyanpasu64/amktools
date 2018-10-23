@@ -312,7 +312,7 @@ def test_sweep():
 
 # %wave_sweep "untrunc" 96
 # ADSR        silent.brr+tune    legato
-'$ED $7d $e0     $f3 $00 $04     $F4 $01',
+'$ED $7d $e0     @30$f3 $00 $04     $F4 $01',
 #   smp[#4]=01 detune=00       detune=80
 ''' $f6 $04 $01  $ee $00  o4c=1  $ee $80  o4c=1
     $f6 $04 $02  $ee $00  o4c+=1 $ee $80  o4c+=93''',
@@ -322,20 +322,20 @@ $F4 $01     $ee $00''',
 
 # %wave_sweep "truncSilent" 96
 '''
-$ED $7d $e0  $f3 $00 $04    $F4 $01
+$ED $7d $e0  @30$f3 $00 $04    $F4 $01
     $f6 $04 $03  $ee $00  o4c=1''',
 #   GAIN fadeout
 ''' $FA $01 $98  o4c=95
 $F4 $01     $ee $00''',
 
 # %wave_sweep "untrunc" 1
-'''$ED $7d $e0  $f3 $00 $04    $F4 $01
+'''$ED $7d $e0  @30$f3 $00 $04    $F4 $01
     $f6 $04 $01  $ee $00  o4c=1
 $F4 $01     $ee $00''',
 
 # %wave_sweep "truncSilent" 1
 '''
-$ED $7d $e0  $f3 $00 $04    $F4 $01
+$ED $7d $e0  @30$f3 $00 $04    $F4 $01
     $f6 $04 $03  $ee $00  o4c=1
 $F4 $01     $ee $00
 
