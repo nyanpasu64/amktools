@@ -556,9 +556,10 @@ class MMKParser:
         """
         stream = self.stream
         self.stream = Stream(in_str, self.defines)
-        yield
-
-        self.stream = stream
+        try:
+            yield
+        finally:
+            self.stream = stream
 
 
     @contextmanager
@@ -582,9 +583,10 @@ class MMKParser:
 
         self.out = StringIO()
         with self.out:
-            yield self.out
-
-        self.out = orig
+            try:
+                yield self.out
+            finally:
+                self.out = orig
 
     def parse_str(self, in_str: str):
         with self.set_input(in_str):
