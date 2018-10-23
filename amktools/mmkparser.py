@@ -103,7 +103,7 @@ def main(args: List[str]) -> int:
     try:
         wavetable_path = Path(wavetable_path)
         wavetable = yaml.load(wavetable_path)
-        wavetable = {k: WavetableMetadata(**meta) for k, meta in wavetable.items()}
+        wavetable = {k: WavetableMetadata(name=k, **meta) for k, meta in wavetable.items()}
             # type: Dict[str, WavetableMetadata]
     except FileNotFoundError:
         wavetable = None
@@ -236,6 +236,7 @@ def none_of(chars) -> Pattern:
 
 @dataclass
 class WavetableMetadata:
+    nwave: int = field(init=False)
     nsamp: int
     ntick: int
     fps: float      # Unused. %wave_sweep (constant rate) assumes fps = ticks/second.
@@ -254,6 +255,8 @@ class WavetableMetadata:
             raise MMKError(f'cannot load sample with {nsamp} samples != n*16')
         self.tuning = nsamp // 16
         self.tuning_str = '$%02x $00' % self.tuning
+
+    name: str = None
 
 
 class Stream:
@@ -1055,6 +1058,8 @@ class MMKParser:
 
         if not is_instruments:  # FIXME
             meta.smp_idx = self.smp_num
+            meta.nwave = len(waves)
+            assert meta.nwave == len(meta.pitches)
             self.smp_num += len(waves)
 
     WAVE_GROUP_TEMPLATE = '{}-{:03}.brr'
@@ -1541,6 +1546,11 @@ def _put_sweep(
         if isinstance(event, SweepEvent):
             # Wave envelope
             if event.sample_idx is not None:
+                if not 0 <= event.sample_idx < meta.nwave:
+                    raise MMKError(
+                        f'Cannot sweep to sample {event.sample_idx}, len={meta.nwave}'
+                        f' ({meta.name})'
+                    )
                 self.put_load_sample(meta.smp_idx + event.sample_idx)
             # Pitch envelope
             if event.pitch is not None:
