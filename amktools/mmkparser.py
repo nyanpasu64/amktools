@@ -491,6 +491,17 @@ class Stream:
 
         return int(dur)
 
+
+# Takes total duration and returns note duration.
+NoteLenCalc = Callable[[int], int]
+
+
+def release_early(dur: int) -> NoteLenCalc:
+    def _release(note_len: int) -> int:
+        return note_len - dur
+    return _release
+
+
 @dataclass
 class MMKState:
     isvol: bool = False
@@ -498,6 +509,11 @@ class MMKState:
     is_notelen: bool = False
     panscale: Fraction = Fraction('5/64')
     vmod: Fraction = Fraction(1)
+
+    # Note staccato and early release
+    default_note_len: int = None
+    # staccato: int = 0
+    note_len_calc: NoteLenCalc = release_early(0)
 
     v: Optional[str] = None
     y: str = '10'
@@ -507,6 +523,9 @@ class MMKState:
 
 # TODO move parsers from methods to functions
 
+
+RELEASE_CHAR = '~'
+# STACCATO_CHAR = '.'
 
 class MMKParser:
     FIRST_INSTRUMENT = 30
@@ -655,21 +674,88 @@ class MMKParser:
         self.state.is_notelen = state
 
     def parse_note(self):
-        """ Parse a fractional note, and output a tick count. """
-        note_chr = self.stream.get_char()
+        """ Parse a fractional note, and write a tick count. """
+        note_str = self.stream.get_char()
         if self.stream.peek() in '+-':
-            note_chr += self.stream.get_char()
+            note_str += self.stream.get_char()
 
-        # nticks is either int or None.
         try:
+            # If no duration supplied, nticks is None.
             nticks, whitespace = self.stream.get_time()
         except MMKError:
-            nticks = None
-            whitespace = ''
+            # Hacky workaround??? for a..g embedded within macro names ???
+            self.put(note_str)
+            return
 
+        if note_str == 'l':
+            if nticks is None:
+                raise MMKError('Cannot use lxx command without duration')
+            self.state.default_note_len = nticks
+            self.write_note(note_str, nticks)
+            self.put(whitespace)
+            return
+
+        # Compute note and release duration.
+        note_ticks, rest_ticks = self.get_release(
+            coalesce(nticks, self.state.default_note_len)
+        )
+
+        if nticks is None and note_ticks == self.state.default_note_len:
+            assert rest_ticks == 0
+            self.put(note_str + whitespace)
+        elif note_ticks + rest_ticks > 0:
+            if note_ticks:
+                self.write_note(note_str, note_ticks)
+            if rest_ticks:
+                self.write_note('r', rest_ticks)
+            self.put(whitespace)
+
+    def get_release(self, nticks):
+        note_ticks = self.state.note_len_calc(nticks)
+        name = self.state.note_len_calc.__name__
+        if note_ticks > nticks:
+            # Redundant staccatos should be filtered out by staccato().
+            raise MMKError(
+                f'Note length {name}: overlong '
+                f'{note_ticks}-ticks from {nticks}-tick note')
+
+        if nticks > 0 and note_ticks <= 0:
+            raise MMKError(
+                f'Note length {name}: missing '
+                f'{note_ticks}-ticks from {nticks}-tick note')
+
+        rest_ticks = nticks - note_ticks
+        return note_ticks, rest_ticks
+
+
+
+
+    def write_note(self, note_str: str, nticks: int):
         time_str: str = self._format_time(nticks)
+        self.put(f'{note_str}{time_str}')
 
-        self.put(f'{note_chr}{time_str}' + whitespace)
+
+    def parse_release(self):
+        """ Release the next note early.
+        If two tildes, release all future notes early.
+        """
+
+        def read_release():
+            dur, _ = self.stream.get_time()
+            self.state.note_len_calc = release_early(dur)
+
+        assert self.stream.get_char() == RELEASE_CHAR
+        if self.stream.peek() == RELEASE_CHAR:
+            self.stream.get_char()
+            # Continue until cancelled.
+            read_release()
+
+        else:
+            # Release the next note.
+            old_state = copy.copy(self.state)
+            read_release()
+            self.parse_note()
+            self.state = old_state
 
     @staticmethod
     def _format_time(ntick: Optional[int]) -> str:
@@ -1133,6 +1219,12 @@ class MMKParser:
                 # Parse the default AMK commands.
                 elif self.state.is_notelen and char in self.NOTES_WITH_DURATION:
                     self.parse_note()
+
+                elif self.state.is_notelen and char == RELEASE_CHAR:
+                    self.parse_release()
+
+                # elif self.state.is_notelen and char == STACCATO_CHAR:
+                #     self.parse_staccato()
 
                 elif char == 'v':
                     self.parse_vol()

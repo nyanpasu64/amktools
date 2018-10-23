@@ -152,6 +152,38 @@ c4 c2 c1 c=48
 '''
 
 
+def test_note_release():
+    in_str = ''';
+%notelen on
+c1 ~/2c1 c1
+l1
+c ~/2c c
+c2 ~/2c2 c2
+
+~~/2 c1 c1 ~~0 c1
+'''
+    p = mmkparser.MMKParser(in_str, tuning)
+    outstr = p.parse()
+    assert outstr == ''';
+
+c4 c8r8 c4
+l4
+c c8r8 c
+c2 c=72r8 c2
+
+c8r8 c8r8 c4
+'''
+
+    error_str = '''\
+%notelen on
+~/2 c/2
+'''
+    p = mmkparser.MMKParser(error_str, tuning)
+    with pytest.raises(mmkparser.MMKError):
+        outstr = p.parse()
+        raise Exception(outstr)
+
+
 def test_instruments():
     in_str = '''#instruments
 {
