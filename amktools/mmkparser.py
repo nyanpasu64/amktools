@@ -1059,7 +1059,8 @@ class MMKParser:
         if not is_instruments:  # FIXME
             meta.smp_idx = self.smp_num
             meta.nwave = len(waves)
-            assert meta.nwave == len(meta.pitches)
+            # meta.nwave is not always equal to len(meta.pitches),
+            # since they may be subsampled differently.
             self.smp_num += len(waves)
 
     WAVE_GROUP_TEMPLATE = '{}-{:03}.brr'
