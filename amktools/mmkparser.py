@@ -21,6 +21,7 @@ from typing import Dict, List, Union, Pattern, Tuple, Callable, Optional, ClassV
     Iterator, TypeVar, Iterable
 
 import dataclasses
+import pygtrie
 from dataclasses import dataclass, field
 from more_itertools import peekable
 from ruamel.yaml import YAML
@@ -29,6 +30,7 @@ from ruamel.yaml import YAML
 # The only way to fix that would be to expand macros, which would both complicate the program and
 # make the generated source less human-readable.
 from amktools.util import ceildiv, coalesce
+from amktools.utils.substring_trie import StringSlice
 
 
 class MMKError(ValueError):
@@ -310,7 +312,7 @@ class Stream:
 
         :param regex: Regex pattern terminating region.
         :param strict: If true, throws exception on failure. If false, returns in_str[pos:size()].
-        :return: Text until regex match (optionally inclusive).
+        :return: Text until (not including) regex match.
         """
         regex = re.compile(regex)
         match = regex.search(self.in_str, self.pos)
@@ -551,6 +553,7 @@ class MMKParser:
             light='$F4 $02',
             restore_instr='$F4 $09'
         )  # type: Dict[str, str]
+        self.amk_keys = pygtrie.CharTrie()
 
         # Wavetable parser state
         self.curr_chan: int = None
@@ -627,7 +630,18 @@ class MMKParser:
         self.put('  ')
 
     # Begin parsing functions!
-    def parse_define(self, command_case, whitespace):
+    def parse_amk_replace(self):
+        assert self.stream.get_char() == '"'
+
+        before = self.stream.get_until('=', strict=True)
+        after = self.stream.get_until('"', strict=True)
+        self.amk_keys[before.strip()] = True
+
+        self.put('"{}='.format(before))
+        self.parse_str(after)
+        self.put('"')
+
+    def subst_define(self, command_case, whitespace):
         """ TODO Parse literal define, passthrough. """
         if command_case in self.defines:
             self.put(self.defines[command_case] + whitespace)
@@ -1199,6 +1213,15 @@ class MMKParser:
                     break
                     # Only whitespace left, means already printed, nothing more to do
                 self._begin_pos = self.stream.pos
+
+                amk_key = self.amk_keys.longest_prefix(StringSlice(
+                        self.stream.in_str,
+                        self.stream.pos
+                ))
+                if amk_key:
+                    self.stream.skip_chars(len(amk_key.key), self.put)
+                    continue
+
                 char = self.stream.peek()
 
                 # noinspection PyUnreachableCode
@@ -1206,6 +1229,10 @@ class MMKParser:
                     # Do you realize exactly how many bugs I've created
                     # because I accidentally used `if` instead of `elif`?
                     pass
+
+                # Save AMK keys, to skip parsing them later.
+                elif char == '"':
+                    self.parse_amk_replace()
 
                 # Parse the default AMK commands.
                 elif self.state.is_notelen and char in self.NOTES_WITH_DURATION:
@@ -1263,7 +1290,7 @@ class MMKParser:
                     command = command_case.lower()
                     self._command = command
 
-                    if self.parse_define(command_case, whitespace):
+                    if self.subst_define(command_case, whitespace):
                         continue
 
                     if command == 'mmk0.1':
@@ -1411,7 +1438,7 @@ class MMKParser:
                     self._command = command
 
                     # **** Parse defines ****
-                    if self.parse_define(command_case, whitespace):
+                    if self.subst_define(command_case, whitespace):
                         pass
                     # **** Parse commands ****
                     elif command in mapping:

@@ -78,6 +78,47 @@ def test_extension(mocker) -> None:
 # Input string processing
 
 
+def test_amk_define():
+    in_str = ''';
+%define value 1
+
+; Ensure AMK keys are not parsed by MMK.
+"%not-a-command = 0"
+
+; Ensure AMK values are parsed (with or without spaces).
+"key=%value"
+"abcdefg^l_v = 2"
+
+; Ensure key occurrences are not parsed.
+%vmod 2
+key10 abcdefg^l_v20
+
+; Ensure replacements don't skip over following text.
+"cmd=c4"
+cmd %vmod,2 v50
+'''
+    p = mmkparser.MMKParser(in_str, tuning)
+    outstr = p.parse()
+    assert outstr == ''';
+
+
+; Ensure AMK keys are not parsed by MMK.
+"%not-a-command = 0"
+
+; Ensure AMK values are parsed (with or without spaces).
+"key=1"
+"abcdefg^l_v = 2"
+
+; Ensure key occurrences are not parsed.
+
+key10 abcdefg^l_v20
+
+; Ensure replacements don't skip over following text.
+"cmd=c4"
+cmd v100
+'''
+
+
 def test_define():
     in_str = '''\
 ;
