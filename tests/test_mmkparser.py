@@ -119,9 +119,10 @@ cmd v100
 '''
 
 
-def test_spc_braces():
+def test_spc_hash():
     in_str = ''';
 %vmod,2
+#path "no-equal-sign"
 #spc
 {
 	#game	"v50"
@@ -133,6 +134,7 @@ v50
     outstr = p.parse()
     assert outstr == ''';
 
+#path "no-equal-sign"
 #spc
 {
 	#game	"v50"

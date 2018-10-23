@@ -1270,11 +1270,15 @@ class MMKParser:
                     branch('samples', self.parse_samples)
                     branch('instruments', self.parse_instruments)
                     branch('spc', self.parse_spc)
-                    if not ret and self.stream.peek().isnumeric():
+
+                    if ret:
+                        continue
+                    if self.stream.peek().isnumeric():
                         chan = self.stream.get_char()
                         self.curr_chan = int(chan)
                         self.put(chan)
-
+                    else:
+                        self.put(self.stream.get_line())
 
                 elif char == '(':
                     self.stream.skip_chars(1, self.put)
