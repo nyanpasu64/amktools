@@ -1255,6 +1255,9 @@ class MMKParser:
                 elif char == 'y':
                     self.parse_pan()
 
+                elif char in 'q$':
+                    self.stream.skip_chars(3, self.put)
+
                 elif char == ';':
                     self.parse_comment()
 

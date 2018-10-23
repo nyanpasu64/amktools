@@ -176,6 +176,27 @@ v1
 '''
 
 
+def test_amk_commands():
+    in_str = ''';
+%notelen on
+f1
+$f1
+q7f
+v100 %vmod,2 v100
+y10
+'''
+    p = mmkparser.MMKParser(in_str, tuning)
+    outstr = p.parse()
+    assert outstr == ''';
+
+f4
+$f1
+q7f
+v100 v200
+y10
+'''
+
+
 def test_notelen():
     in_str = '''\
 c4 c2 c1 c=48
