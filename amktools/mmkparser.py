@@ -679,13 +679,8 @@ class MMKParser:
         if self.stream.peek() in '+-':
             note_str += self.stream.get_char()
 
-        try:
-            # If no duration supplied, nticks is None.
-            nticks, whitespace = self.stream.get_time()
-        except MMKError:
-            # Hacky workaround??? for a..g embedded within macro names ???
-            self.put(note_str)
-            return
+        # If no duration supplied, nticks is None.
+        nticks, whitespace = self.stream.get_time()
 
         if note_str == 'l':
             if nticks is None:
@@ -796,9 +791,7 @@ class MMKParser:
 
     def parse_vol(self):
         self.stream.skip_chars(1, self.put)
-        orig_vol = self.stream.get_int(maybe=True)
-        if orig_vol is None:
-            return
+        orig_vol = self.stream.get_int()
 
         self.state.v = self.calc_vol(orig_vol)
         self.put(self.state.v)
@@ -836,9 +829,7 @@ class MMKParser:
 
     def parse_pan(self):
         self.stream.skip_chars(1, self.put)
-        orig_pan = self.stream.get_int(maybe=True)
-        if orig_pan is None:
-            return
+        orig_pan = self.stream.get_int()
 
         self.state.y = self.calc_pan(orig_pan)
         # Pass the command through.
