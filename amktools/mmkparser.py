@@ -289,7 +289,10 @@ class Stream:
     # so I basically reimplemented the iterator protocol ad-hoc... except I can't use takewhile.
     # Iterators don't support peek(). https://pypi.org/project/more-itertools/ supports peek() like
     # my API.
-    def peek(self):
+    def peek(self) -> str:
+        if self.is_eof():
+            # Return an "invalid Unicode character". Will it hide bugs?
+            return '\uFFFF'
         return self.in_str[self.pos]
 
     def peek_equals(self, keyword: str):
@@ -436,7 +439,7 @@ class Stream:
     # Returns parse (doesn't fetch trailing whitespace)
     def get_int(self, maybe=False) -> Optional[int]:
         buffer = ''
-        while (not self.is_eof()) and self.peek().isdigit():    # FIXME breaks on EOF (test_command_eof)
+        while self.peek().isdigit():
             buffer += self.get_char()
 
         if not buffer:
@@ -1806,6 +1809,7 @@ def parse_parametric_sweep(self: MMKParser):
             # Note pitch
             # TODO note to midi function?
             sharp_flat = stream.peek()
+            # FIXME rewrite to account for flats
             if c + sharp_flat in note2pitch:
                 note_name = c + sharp_flat
                 stream.skip_chars(1)

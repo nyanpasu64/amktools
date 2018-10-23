@@ -490,6 +490,7 @@ def test_error_at_eof():
     '%reset',
     'v128'
     '"L=y15"',  # string replacements are treated as short streams
+    '%notelen on l4 c',
     '; comment at eof'
 ])
 def test_eof(in_str):
