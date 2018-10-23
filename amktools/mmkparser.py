@@ -1269,6 +1269,7 @@ class MMKParser:
 
                     branch('samples', self.parse_samples)
                     branch('instruments', self.parse_instruments)
+                    branch('spc', self.parse_spc)
                     if not ret and self.stream.peek().isnumeric():
                         chan = self.stream.get_char()
                         self.curr_chan = int(chan)
@@ -1469,6 +1470,9 @@ class MMKParser:
         'silent': lambda self: self.parse_silent(),
         'wave_group': lambda self: self.parse_wave_group(is_instruments=False),
     })
+
+    # noinspection PyArgumentList
+    parse_spc = _brace_parser_factory({})
 
 
 #### %wave_sweep

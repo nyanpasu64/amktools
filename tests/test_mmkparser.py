@@ -119,6 +119,28 @@ cmd v100
 '''
 
 
+def test_spc_braces():
+    in_str = ''';
+%vmod,2
+#spc
+{
+	#game	"v50"
+	#title	"y"
+}
+v50
+'''
+    p = mmkparser.MMKParser(in_str, tuning)
+    outstr = p.parse()
+    assert outstr == ''';
+
+#spc
+{
+	#game	"v50"
+	#title	"y"
+}
+v100
+'''
+
 def test_define():
     in_str = '''\
 ;
