@@ -531,6 +531,7 @@ class MMKState:
 # TODO move parsers from methods to functions
 
 
+NOTES_WITH_DURATION = frozenset('abcdefg^rl')
 RELEASE_CHAR = '~'
 # STACCATO_CHAR = '.'
 
@@ -692,9 +693,12 @@ class MMKParser:
 
         self.state.is_notelen = state
 
-    def parse_note(self):
+    def parse_note(self, allowed_notes=NOTES_WITH_DURATION):
         """ Parse a fractional note, and write a tick count. """
         note_str = self.stream.get_char()
+        if note_str not in allowed_notes:
+            allowed_str = ''.join(sorted(allowed_notes))
+            raise MMKError(f'Invalid note name {note_str} not in {allowed_str}')
         if self.stream.peek() in '+-':
             note_str += self.stream.get_char()
 
@@ -741,17 +745,18 @@ class MMKParser:
         rest_ticks = nticks - note_ticks
         return note_ticks, rest_ticks
 
-
-
-
     def write_note(self, note_str: str, nticks: int):
         time_str: str = self._format_time(nticks)
         self.put(f'{note_str}{time_str}')
 
+    NOTES_ONLY = frozenset('abcdefg')
 
     def parse_release(self):
         """ Release the next note early.
         If two tildes, release all future notes early.
+
+        Single-note form cannot be followed by lxx.
+        TODO: Should ties be allowed?
         """
 
         def read_release():
@@ -768,7 +773,7 @@ class MMKParser:
             # Release the next note.
             old_state = copy.copy(self.state)
             read_release()
-            self.parse_note()
+            self.parse_note(allowed_notes=self.NOTES_ONLY)
             self.state = old_state
 
     @staticmethod
@@ -1205,8 +1210,6 @@ class MMKParser:
     # PANSCALE: Fraction (5/64)
     # ISVOL, ISPAN: bool
 
-    NOTES_WITH_DURATION = set('abcdefg^rl')
-
     def parse(self) -> str:
         # For exception debug
         try:
@@ -1240,7 +1243,7 @@ class MMKParser:
                     self.parse_amk_replace()
 
                 # Parse the default AMK commands.
-                elif self.state.is_notelen and char in self.NOTES_WITH_DURATION:
+                elif self.state.is_notelen and char in NOTES_WITH_DURATION:
                     self.parse_note()
 
                 elif self.state.is_notelen and char == RELEASE_CHAR:

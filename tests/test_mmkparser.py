@@ -260,11 +260,13 @@ c2 c=72r8 c2
 c8r8 c8r8 c4
 '''
 
-    error_str = '''\
-%notelen on
-~/2 c/2
-'''
-    p = mmkparser.MMKParser(error_str, tuning)
+
+@pytest.mark.parametrize('in_str', [
+    '%notelen on ~=5 l/2',  # Single-note form cannot be followed by lxx.
+    '%notelen on ~/2 c/2',
+])
+def test_note_release_error(in_str):
+    p = mmkparser.MMKParser(in_str, tuning)
     with pytest.raises(mmkparser.MMKError):
         outstr = p.parse()
         raise Exception(outstr)
