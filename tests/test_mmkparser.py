@@ -247,6 +247,12 @@ c ~/2c c
 c2 ~/2c2 c2
 
 ~~/2 c1 c1 ~~0 c1
+
+; Staccato.
+.=5 c1 c1
+..=5 c1 c1
+; Staccato .0 disables note release.
+..0 c1
 '''
     p = mmkparser.MMKParser(in_str, tuning)
     outstr = p.parse()
@@ -258,6 +264,12 @@ c c8r8 c
 c2 c=72r8 c2
 
 c8r8 c8r8 c4
+
+; Staccato.
+c=5r=43 c4
+c=5r=43 c=5r=43
+; Staccato .0 disables note release.
+c4
 '''
 
 

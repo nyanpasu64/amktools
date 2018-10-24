@@ -501,12 +501,24 @@ class Stream:
 
 # Takes total duration and returns note duration.
 NoteLenCalc = Callable[[int], int]
+NoteLenFactory = Callable[[int], NoteLenCalc]
 
 
 def release_early(dur: int) -> NoteLenCalc:
     def _release(note_len: int) -> int:
         return note_len - dur
     return _release
+
+
+def staccato(dur: int) -> NoteLenCalc:
+    # Disable staccato.
+    if dur == 0:
+        return release_early(0)
+
+    # Return dur-tick-long staccato.
+    def _staccato(note_len: int) -> int:
+        return min(note_len, dur)
+    return _staccato
 
 
 @dataclass
@@ -533,7 +545,7 @@ class MMKState:
 
 NOTES_WITH_DURATION = frozenset('abcdefg^rl')
 RELEASE_CHAR = '~'
-# STACCATO_CHAR = '.'
+STACCATO_CHAR = '.'  # Dots have a different meaning from normal MML.
 
 class MMKParser:
     FIRST_INSTRUMENT = 30
@@ -751,7 +763,7 @@ class MMKParser:
 
     NOTES_ONLY = frozenset('abcdefg')
 
-    def parse_release(self):
+    def parse_notelen(self, char: str, note_len: NoteLenFactory):
         """ Release the next note early.
         If two tildes, release all future notes early.
 
@@ -761,10 +773,10 @@ class MMKParser:
 
         def read_release():
             dur, _ = self.stream.get_time()
-            self.state.note_len_calc = release_early(dur)
+            self.state.note_len_calc = note_len(dur)
 
-        assert self.stream.get_char() == RELEASE_CHAR
-        if self.stream.peek() == RELEASE_CHAR:
+        assert self.stream.get_char() == char
+        if self.stream.peek() == char:
             self.stream.get_char()
             # Continue until cancelled.
             read_release()
@@ -1247,10 +1259,10 @@ class MMKParser:
                     self.parse_note()
 
                 elif self.state.is_notelen and char == RELEASE_CHAR:
-                    self.parse_release()
+                    self.parse_notelen(RELEASE_CHAR, release_early)
 
-                # elif self.state.is_notelen and char == STACCATO_CHAR:
-                #     self.parse_staccato()
+                elif self.state.is_notelen and char == STACCATO_CHAR:
+                    self.parse_notelen(STACCATO_CHAR, staccato)
 
                 elif char == 'v':
                     self.parse_vol()
