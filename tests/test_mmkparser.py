@@ -290,6 +290,7 @@ def test_instruments():
     %tune "test.brr" $8F $E0 $00
     "test.brr" %adsr -1,-1,full,0 $01 $23
     %tune "test.brr" %adsr -1,-1,full,0
+    %tune "test.brr" %exp 0
 }
 '''
     p = mmkparser.MMKParser(in_str, tuning)
@@ -298,6 +299,7 @@ def test_instruments():
 {
     "test.brr" $8f $e0 $00 $f0 $0f
     "test.brr" $ff $e0 $a0 $01 $23
+    "test.brr" $ff $e0 $a0 $f0 $0f
     "test.brr" $ff $e0 $a0 $f0 $0f
 }
 '''
@@ -355,6 +357,7 @@ def test_instrument_names():
 
 # TODO parameterize
 def test_commands():
+    # TODO adsr/exp
     in_str = ''';
 %vbend,4,255\t
 %ybend 4 20\t
