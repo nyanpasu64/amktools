@@ -193,6 +193,34 @@ def test_instruments_comments():
 '''
 
 
+def test_instrument_names():
+    # Do not place %tune before %instr, it breaks named instruments.
+    in_str = '''\
+#instruments
+{
+    %instr %tune "test.brr" %adsr -1,-1,full,0
+    %instr %tune test2="test.brr" %adsr -1,-1,full,0
+    %instr %tune test3 = "test.brr" %adsr -1,-1,full,0
+}
+%test
+%test2
+%test3
+'''
+    p = mmkparser.MMKParser(in_str, tuning)
+    outstr = p.parse()
+    assert outstr.lower() == '''\
+#instruments
+{
+    "test.brr" $ff $e0 $a0 $f0 $0f
+    "test.brr" $ff $e0 $a0 $f0 $0f
+    "test.brr" $ff $e0 $a0 $f0 $0f
+}
+@30
+@31
+@32
+'''
+
+
 # TODO parameterize
 def test_commands():
     in_str = ''';

@@ -939,31 +939,38 @@ class MMKParser:
 
     def parse_instr(self):
         """ Parse an instrument definition. Define a name for the instrument number.
+        Do not place %tune before %instr, it breaks named instruments.
+
         "foo.brr"
         - %foo=@30
 
-        Strips off leading
+        Define a custom alias.
         bar="foo.brr"
         - %bar=@31
         """
         with self.capture() as fout, self.until_comment():
+            input = self.stream.in_str
             self.parse_instruments()
             output = fout.getvalue()
 
-        stream = Stream(output, self.defines)
-        if output[0] == '"':
-            self.put(output)
+        # Process custom aliases
+        if '=' in input and input.index('=') < input.index('"'):
+            before_assignment = input.split('=')[0].strip()
+            instr_name = before_assignment.split()[-1]
+            if not instr_name:
+                raise MMKError('invalid alias definition, what is this? ' + input)
+        else:
+            instr_name = None
 
+        self.put(output)
+
+        if instr_name is None:
+            stream = Stream(output, self.defines)
             instr_path, whitespace = stream.get_quoted()
             instr_path = Path(instr_path)
             if instr_path.suffix != '.brr':
                 raise MMKError(f'Invalid instrument sample {instr_path} not .brr file')
             instr_name = instr_path.stem
-
-        else:
-            instr_name = stream.get_until('=', strict=True)  # seeks past char
-            instr_def = stream.get_line()
-            self.put(instr_def)
 
         self.defines[instr_name] = f'@{self.instr_num}'
 
