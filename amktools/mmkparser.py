@@ -825,7 +825,7 @@ class MMKParser:
 
     def parse_transpose(self) -> None:
         transpose_str, whitespace = self.stream.get_phrase(1)
-        transpose = parse_int_hex(transpose_str)
+        transpose = int(transpose_str)
 
         if transpose not in range(-0x80, 0x80):
             raise MMKError('invalid transpose {}'.format(transpose_str))
