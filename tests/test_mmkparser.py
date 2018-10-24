@@ -368,7 +368,9 @@ def test_commands():
 %gain,exp,$03
 %gain,up,$03
 %gain,bent,$03
-;
+
+%adsr -1,-1,-1,$0
+%exp $0
 '''
     p = mmkparser.MMKParser(in_str, tuning)
     outstr = p.parse()
@@ -382,8 +384,42 @@ $fa $01 $83
 $fa $01 $a3
 $fa $01 $c3
 $fa $01 $e3
-;
+
+$ed $7f $e0
+$ed $7f $e0
 '''
+
+
+def test_hex_only():
+    in_str = '''\
+%adsr -1,-1,-1,1f
+%exp 1f
+%gain,exp,1f
+
+%adsr -1,-1,-1,$1f
+%exp $1f
+%gain,exp,$1f
+'''
+    p = mmkparser.MMKParser(in_str, tuning)
+    outstr = p.parse()
+    assert outstr.lower() == '''\
+$ed $7f $ff
+$ed $7f $ff
+$fa $01 $bf
+
+$ed $7f $ff
+$ed $7f $ff
+$fa $01 $bf
+'''
+
+    for err_str in [
+        '%adsr -1,-1,-1,10',
+        '%exp 10',
+        '%gain,exp,10',
+    ]:
+        p = mmkparser.MMKParser(err_str, tuning)
+        with pytest.raises(mmkparser.MMKError):
+            p.parse()
 
 
 def metadata():

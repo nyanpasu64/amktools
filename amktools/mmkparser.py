@@ -149,6 +149,25 @@ def parse_int_hex(instr: str):
         return int(instr, 0)
 
 
+def try_int(s):
+    try:
+        return int(s, 10)
+    except ValueError:
+        return None
+
+
+def parse_hex_only(in_str: str):
+    if in_str.startswith('$'):
+        return int(in_str[1:], 16)
+    else:
+        hex_value = int(in_str, 16)
+        int_value = try_int(in_str)
+        if int_value is not None and int_value != hex_value:
+            raise MMKError(
+                f'Ambiguous value {in_str} in hexadecimal-only field (try prefixing $)')
+        return hex_value
+
+
 def parse_frac(infrac):
     if type(infrac) == str:
         slash_pos = infrac.find('/')
@@ -947,7 +966,7 @@ class MMKParser:
             prefix = '$FA $01'
 
         raw_rate = rate
-        rate = parse_int_hex(rate)
+        rate = parse_hex_only(rate)
         for *curves, begin, max_rate in self._GAINS:
             if curve in curves:
                 rate = self._index_check(curve, rate, max_rate)
@@ -973,10 +992,10 @@ class MMKParser:
         if sustain.startswith('full'):
             sustain = '7'
 
-        attack = parse_int_hex(attack)
-        decay = parse_int_hex(decay)
-        sustain = parse_int_hex(sustain)
-        release = parse_int_hex(release)
+        attack = parse_hex_only(attack)
+        decay = parse_hex_only(decay)
+        sustain = parse_hex_only(sustain)
+        release = parse_hex_only(release)
 
         attack = self._index_check('attack', attack, 0x10)
         decay = self._index_check('decay', decay, 0x08)
