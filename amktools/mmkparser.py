@@ -222,6 +222,7 @@ def format_note(midi: int):
     return f'o{octave}{note}'
 
 note2pitch = {note: idx for idx, note in enumerate(note_names)}
+accidental2pitch = {'+': 1, '-': -1}
 
 
 TICKS_PER_BEAT = 0x30
@@ -1845,16 +1846,16 @@ def parse_parametric_sweep(self: MMKParser):
 
             # Note pitch
             # TODO note to midi function?
+
             sharp_flat = stream.peek()
-            # FIXME rewrite to account for flats
-            if c + sharp_flat in note2pitch:
-                note_name = c + sharp_flat
+            if sharp_flat in accidental2pitch:
                 stream.skip_chars(1)
+                dpitch = accidental2pitch[sharp_flat]
             else:
-                note_name = c
+                dpitch = 0
             if octave is None:
                 raise MMKError('You must assign octave within sweep{}')
-            midi_pitch = note2pitch[note_name] + OCTAVE * (octave + 1)
+            midi_pitch = note2pitch[c] + dpitch + OCTAVE * (octave + 1)
 
             # Note duration
             ntick, _ = stream.get_time()
