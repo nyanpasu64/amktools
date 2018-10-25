@@ -1599,19 +1599,31 @@ class PitchedSweep(Sweepable):
             tick = min(wave_ticks.peek(), pitch_ticks.peek())
 
 
-@dataclass
-class Note:
-    """ A note used in %wave_sweep and %sweep{.
-    If `midi_pitch` is set, it overrides the sweep's pitch. """
-
-    midi_pitch: Optional[int]
+# @dataclass
+class INote:
     ntick: int
 
 
-NoteIter = Iterator[Tuple[int, Note]]
+@dataclass
+class Note(INote):
+    """ A note used in %wave_sweep and %sweep{.
+    If `midi_pitch` is set, it overrides the sweep's pitch. """
+    ntick: int
+    midi_pitch: Optional[int]
 
 
-def note_chain(notes: List[Note]) -> NoteIter:
+@dataclass(frozen=True)
+class _ToggleLegato(INote):
+    ntick: int = 0
+
+ToggleLegato = _ToggleLegato()
+del _ToggleLegato
+
+
+NoteIter = Iterator[Tuple[int, INote]]
+
+
+def note_chain(notes: List[INote]) -> NoteIter:
     tick = 0
     for note in notes:
         yield (tick, note)
@@ -1628,21 +1640,37 @@ def parse_wave_sweep(self: MMKParser):
     meta = self.wavetable[name]
 
     sweeps = [PitchedSweep(meta)]
-    notes = [Note(None, note_ntick)]
+    notes = [ToggleLegato, Note(note_ntick, None)]
 
-    _put_sweep(self, sweeps, notes, meta)
+    _put_sweep(self, sweeps, notes, meta, is_legato=True)
 
 
 def _put_sweep(
         self: MMKParser,
         sweeps: List[Sweepable],
-        notes: List[Note],
+        notes: List[INote],
         meta: WavetableMetadata,
+        is_legato: bool,
 ):
     """ Write a wavetable sweep. Duration is determined by `notes`.
     If notes[].midi_pitch exists, overrides sweeps[].pitch.
 
-    Used by %wave_sweep and %sweep{."""
+    Used by %wave_sweep and %sweep{.
+
+    # Each note follows a pitch/wave event. It is printed (with the proper
+    # begin/end ticks) when the next pitch/wave event begins.
+
+    Workflow: If a note lasts from t0 to t1, the following occurs:
+    - end_note(t0)
+    - SweepEvent assigns sweep_pitch[t0]
+    - and/or Note assigns note_pitch[t0]
+    - end_note(t1) writes a note from t0 to t1. midi_pitch() == end of t0.
+
+    TODO:
+    - Add datatype for rests
+    - Add support for arbitrary events (volume, pan)
+    - Add support for retriggering wave envelope
+    """
 
     if getattr(meta, 'nwave', None) is None:
         raise MMKError(f'Did you forget to add #samples{{ %wave_group "{meta.name}" ?')
@@ -1653,14 +1681,15 @@ def _put_sweep(
     # Load silent instrument with proper tuning
     if self.silent_idx is None:
         raise MMKError('cannot %wave_sweep without silent sample defined')
-    # @0 to zero out fine-tuning
+    # @30 to zero out fine-tuning
     self.put(self.defines['silent'])
     # Set coarse tuning
     self.put_hex(0xf3, self.silent_idx, meta.tuning)
 
     # Enable legato
-    self.put('  ')
-    self.put(LEGATO)   # Legato glues right+2, and unglues left+right.
+    if is_legato:
+        self.put('  ')
+        self.put(LEGATO)   # Legato glues right+2, and unglues left+right.
 
     #### Arrange sweeps through time.
     sweep_ntick = sum(sweep.ntick for sweep in sweeps)
@@ -1672,45 +1701,39 @@ def _put_sweep(
     note_ntick = sum(note.ntick for note in notes)
 
     #### Write notes.
-    """
-    # Each note follows a pitch/wave event. It is printed (with the proper
-    # begin/end ticks) when the next pitch/wave event begins.
-
-    Workflow: If a note lasts from t0 to t1, the following occurs:
-    - end_note(t0)
-    - SweepEvent assigns sweep_pitch[t0]
-    - and/or Note assigns note_pitch[t0]
-    - end_note(t1) writes a note from t0 to t1. midi_pitch() == end of t0.
-    """
 
     note_begin = 0
     def end_note(note_end):
         nonlocal note_begin
         if note_end > note_begin:
-            self.put(f'{format_note(midi_pitch())}={note_end - note_begin}  ')
+            note_str = note_name()
+            self.put(f'{note_str}={note_end - note_begin}  ')
             note_begin = note_end
 
     # Pitch tracking
-    """ TODO:
-    - Add datatype for rests
-    - Use ties unless changing pitch
-        - Add option to disable legato
-    - Add support for arbitrary events (volume, pan)
-    - Add support for retriggering wave envelope
-    """
     note_pitch: int = None
+    is_new_note: bool = False
     sweep_pitch: int = None
-    def midi_pitch():
-        try:
-            return coalesce(note_pitch, sweep_pitch)
-        except TypeError:
+
+    def note_name() -> str:
+        """ Return note, tie, or pitch from sweep. """
+        nonlocal is_new_note
+        if note_pitch is not None:
+            if is_new_note:
+                is_new_note = False
+                return format_note(note_pitch)
+            else:
+                return '^'
+        elif sweep_pitch is not None:
+            return format_note(sweep_pitch)
+        else:
             raise ValueError('_put_sweep missing both note_pitch and sweep_pitch')
 
     sweep_note_iter = peekable(
         heapq.merge(sweep_iter, note_iter, key=lambda tup: tup[0])
     )
 
-    for time, event in sweep_note_iter:  # type: int, Union[SweepEvent, Note]
+    for time, event in sweep_note_iter:  # type: int, Union[SweepEvent, INote]
         if time >= note_ntick:
             break
         end_note(time)
@@ -1735,6 +1758,11 @@ def _put_sweep(
 
         elif isinstance(event, Note):
             note_pitch = event.midi_pitch
+            is_new_note = True
+
+        elif event is ToggleLegato:
+            is_legato = not is_legato
+            self.put('  ' + LEGATO)
 
         else:
             raise TypeError(f'invalid sweep event type={type(event)}, programmer error')
@@ -1749,7 +1777,8 @@ def _put_sweep(
     end_note(note_ntick)
 
     # Cleanup: disable legato and detune.
-    self.put(LEGATO)   # Legato deactivates immediately.
+    if is_legato:
+        self.put(LEGATO)   # Legato deactivates immediately.
     self.put_hex(DETUNE, 0)
 
 
@@ -1776,7 +1805,7 @@ class LinearSweep(Sweepable):
 
 ONLY_WHITESPACE = ' \t\n\r\x0b\f'
 
-def parse_parametric_sweep(self: MMKParser):
+def parse_parametric_sweep(self: MMKParser, is_legato: bool):
     """ Read parameters, and print a sweep with fixed duration.
 
     sweep{ "name"
@@ -1849,6 +1878,11 @@ def parse_parametric_sweep(self: MMKParser):
             octave += 1
         elif c == '<':
             octave -= 1
+
+        # Legato/slur toggle
+        elif c == '_':
+            notes.append(ToggleLegato)
+
         # note length
         elif c == 'l':
             default_ntick, _ = stream.get_time()
@@ -1876,14 +1910,14 @@ def parse_parametric_sweep(self: MMKParser):
                 raise MMKError(
                     'You must assign lxx within sweep{} before entering untimed notes')
 
-            notes.append(Note(midi_pitch, ntick))
+            notes.append(Note(ntick, midi_pitch))
 
         stream.skip_spaces()
 
     # Eat close }
     stream.skip_chars(1)
 
-    _put_sweep(self, sweeps, notes, meta)
+    _put_sweep(self, sweeps, notes, meta, is_legato)
 
 
 if __name__ == '__main__':
