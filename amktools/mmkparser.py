@@ -1159,6 +1159,8 @@ class MMKParser:
         %wave_group "0" %adsr -1,-1,-1,0
         """
         name, whitespace = self.stream.get_quoted()
+        if name.endswith(".brr"):
+            raise MMKError(f'Try removing ".brr" from %wave_group {name}')
         ntick_playback = None
 
         if not is_instruments:
