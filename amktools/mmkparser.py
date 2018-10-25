@@ -1965,5 +1965,4 @@ def parse_parametric_sweep(self: MMKParser, is_legato: bool,
 
 
 if __name__ == '__main__':
-    ret = main(sys.argv[1:])
-    exit(ret)
+    exit(main(sys.argv[1:]))
