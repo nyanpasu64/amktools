@@ -1771,9 +1771,20 @@ def _put_single_sweep(
     note_begin = 0
     def end_note(note_end):
         nonlocal note_begin
-        if note_end > note_begin:
-            note_str = note_name()
-            self.put(f'{note_str}={note_end - note_begin}  ')
+        dtime = note_end - note_begin
+
+        if dtime > 0:
+            # AddmusicK will glitch out if you write a 1-tick note,
+            # followed by instrument/volume changes.
+
+            # TODO unit test
+            # If we write a 1-tick terminating note, write a rest instead.
+            if note_end == note_ntick and dtime == 1:
+                note_str = 'r'
+            else:
+                note_str = note_name()
+
+            self.put(f'{note_str}={dtime}  ')
             note_begin = note_end
 
     # Pitch tracking
