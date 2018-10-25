@@ -1639,6 +1639,9 @@ def _put_sweep(
 
     Used by %wave_sweep and %sweep{."""
 
+    if getattr(meta, 'nwave', None) is None:
+        raise MMKError(f'Did you forget to add #samples{{ %wave_group "{meta.name}" ?')
+
     # Enable ADSR fade-in
     self.parse_str('%adsr -3,-1,full,0  ')
 
