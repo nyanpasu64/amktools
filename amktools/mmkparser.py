@@ -23,7 +23,7 @@ from typing import Dict, List, Union, Pattern, Tuple, Callable, Optional, ClassV
 import dataclasses
 import pygtrie
 from dataclasses import dataclass, field
-from more_itertools import peekable
+from more_itertools import peekable, split_before
 from ruamel.yaml import YAML
 
 # We cannot identify instrument macros.
@@ -1398,7 +1398,11 @@ class MMKParser:
                         parse_wave_sweep(self)
 
                     elif command == 'sweep{':
-                        parse_parametric_sweep(self)
+                        parse_parametric_sweep(self, is_legato=True)
+
+                    elif command in ['note_sweep{', 'ns{']:
+                        parse_parametric_sweep(self, is_legato=False,
+                                               retrigger_sweep=True)
 
                     # Echo and FIR
                     elif command == 'fir':
@@ -1543,6 +1547,7 @@ class SweepEvent:
 
 
 SweepIter = Iterator[Tuple[int, SweepEvent]]
+SweepList = List[Tuple[int, SweepEvent]]
 
 
 class Sweepable(ABC):
@@ -1645,12 +1650,18 @@ def parse_wave_sweep(self: MMKParser):
     _put_sweep(self, sweeps, notes, meta, is_legato=True)
 
 
+@dataclass
+class SweepState:
+    is_legato: bool
+
+
 def _put_sweep(
         self: MMKParser,
         sweeps: List[Sweepable],
         notes: List[INote],
         meta: WavetableMetadata,
         is_legato: bool,
+        retrigger_sweep: bool = False
 ):
     """ Write a wavetable sweep. Duration is determined by `notes`.
     If notes[].midi_pitch exists, overrides sweeps[].pitch.
@@ -1671,7 +1682,6 @@ def _put_sweep(
     - Add support for arbitrary events (volume, pan)
     - Add support for retriggering wave envelope
     """
-
     if getattr(meta, 'nwave', None) is None:
         raise MMKError(f'Did you forget to add #samples{{ %wave_group "{meta.name}" ?')
 
@@ -1686,19 +1696,59 @@ def _put_sweep(
     # Set coarse tuning
     self.put_hex(0xf3, self.silent_idx, meta.tuning)
 
+    state = SweepState(is_legato)
+    del is_legato
+
     # Enable legato
-    if is_legato:
+    if state.is_legato:
         self.put('  ')
         self.put(LEGATO)   # Legato glues right+2, and unglues left+right.
 
     #### Arrange sweeps through time.
     sweep_ntick = sum(sweep.ntick for sweep in sweeps)
+
     # Generate iterator of all SweepEvents.
     sweep_iter: SweepIter = sweep_chain(sweeps)
+    sweep_list: SweepList = list(sweep_iter)
+    del sweep_iter
 
+
+    if retrigger_sweep:
+        # Sweep once per actual note.
+        # Note: rests should not retrigger sweep, only continue or stop sweep.
+        def is_note_trigger(e: INote):
+            return isinstance(e, Note)
+
+        for note_and_trailing in split_before(notes, is_note_trigger):
+            _put_single_sweep(self, state, meta, sweep_list, sweep_ntick, note_and_trailing)
+    else:
+        # Sweep continuously across all notes.
+        _put_single_sweep(self, state, meta, sweep_list, sweep_ntick, notes)
+
+    # Cleanup: disable legato and detune.
+    if state.is_legato:
+        self.put(LEGATO)   # Legato deactivates immediately.
+    self.put_hex(DETUNE, 0)
+
+
+def _put_single_sweep(
+        self: MMKParser,
+        state: SweepState,
+        meta: WavetableMetadata,
+        sweep_list: SweepList,
+        sweep_ntick: int,
+        notes: List[INote],
+):
+    """ Note: If retriggering is enabled, each note will call this function
+    with the same `sweep_list`, but different chunks of `notes`.
+    So precompute `sweep_list` for a (dubious) efficiency boost.
+    """
     # Generate iterator of all Notes
     note_iter = note_chain(notes)
     note_ntick = sum(note.ntick for note in notes)
+
+    # Overall event iterator.
+    time_event_iter = heapq.merge(sweep_list, note_iter, key=lambda tup: tup[0])
 
     #### Write notes.
 
@@ -1729,11 +1779,7 @@ def _put_sweep(
         else:
             raise ValueError('_put_sweep missing both note_pitch and sweep_pitch')
 
-    sweep_note_iter = peekable(
-        heapq.merge(sweep_iter, note_iter, key=lambda tup: tup[0])
-    )
-
-    for time, event in sweep_note_iter:  # type: int, Union[SweepEvent, INote]
+    for time, event in time_event_iter:  # type: int, Union[SweepEvent, INote]
         if time >= note_ntick:
             break
         end_note(time)
@@ -1761,7 +1807,7 @@ def _put_sweep(
             is_new_note = True
 
         elif event is ToggleLegato:
-            is_legato = not is_legato
+            state.is_legato = not state.is_legato
             self.put('  ' + LEGATO)
 
         else:
@@ -1775,11 +1821,6 @@ def _put_sweep(
 
     # End final note.
     end_note(note_ntick)
-
-    # Cleanup: disable legato and detune.
-    if is_legato:
-        self.put(LEGATO)   # Legato deactivates immediately.
-    self.put_hex(DETUNE, 0)
 
 
 ### %sweep{
@@ -1805,7 +1846,8 @@ class LinearSweep(Sweepable):
 
 ONLY_WHITESPACE = ' \t\n\r\x0b\f'
 
-def parse_parametric_sweep(self: MMKParser, is_legato: bool):
+def parse_parametric_sweep(self: MMKParser, is_legato: bool,
+                           retrigger_sweep: bool = False):
     """ Read parameters, and print a sweep with fixed duration.
 
     sweep{ "name"
@@ -1917,7 +1959,7 @@ def parse_parametric_sweep(self: MMKParser, is_legato: bool):
     # Eat close }
     stream.skip_chars(1)
 
-    _put_sweep(self, sweeps, notes, meta, is_legato)
+    _put_sweep(self, sweeps, notes, meta, is_legato, retrigger_sweep)
 
 
 if __name__ == '__main__':
