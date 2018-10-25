@@ -429,6 +429,7 @@ def metadata():
         fps=None,
         wave_sub=2,
         env_sub=1,
+        root_pitch=60,
         pitches=[60.0, 60.5, 61.0, 61.5],
     )
 
