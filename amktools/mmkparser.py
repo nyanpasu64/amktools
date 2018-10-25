@@ -9,6 +9,7 @@ import copy
 import heapq
 import itertools
 import math
+import numbers
 import os
 import re
 import sys
@@ -30,6 +31,7 @@ from ruamel.yaml import YAML
 # The only way to fix that would be to expand macros, which would both complicate the program and
 # make the generated source less human-readable.
 from amktools.util import ceildiv, coalesce
+from amktools.utils.parsing import safe_eval
 from amktools.utils.substring_trie import StringSlice
 
 
@@ -1554,28 +1556,33 @@ SweepList = List[Tuple[int, SweepEvent]]
 
 
 class Sweepable(ABC):
-    ntick: ClassVar[int]
+    @abstractmethod
+    def ntick(self, midi_pitch: Optional[int]) -> int: ...
 
     @abstractmethod
-    def __iter__(self) -> SweepIter: ...
+    def iter(self, midi_pitch: Optional[int]) -> SweepIter: ...
 
 
-def sweep_chain(sweeps: List[Sweepable]) -> SweepIter:
+def sweep_chain(sweeps: List[Sweepable], midi_pitch: Optional[int]) -> SweepIter:
     curr_ntick = 0
     for sweep in sweeps:
-        for tick, event in sweep:
+        for tick, event in sweep.iter(midi_pitch):
             yield (curr_ntick + tick, event)
-        curr_ntick += sweep.ntick
+        curr_ntick += sweep.ntick(midi_pitch)
 
 
 class PitchedSweep(Sweepable):
     """ Pitched sweep, with fixed wave/pitch rate. """
+
     def __init__(self, meta: WavetableMetadata):
         self.meta = meta
-        self.ntick = meta.ntick
+        self._ntick = meta.ntick
 
-    def __iter__(self) -> SweepIter:
-        """ Pitched sweep, with fixed wave/pitch rate. """
+    def ntick(self, midi_pitch: Optional[int]) -> int:
+        return self._ntick
+
+    def iter(self, midi_pitch: Optional[int]) -> SweepIter:
+        """ Pitched sweep, plays at fixed pitch and rate. midi_pitch is ignored. """
         meta = self.meta
 
         def tick_range(skip):
@@ -1707,26 +1714,15 @@ def _put_sweep(
         self.put('  ')
         self.put(LEGATO)   # Legato glues right+2, and unglues left+right.
 
-    #### Arrange sweeps through time.
-    sweep_ntick = sum(sweep.ntick for sweep in sweeps)
-
-    # Generate iterator of all SweepEvents.
-    sweep_iter: SweepIter = sweep_chain(sweeps)
-    sweep_list: SweepList = list(sweep_iter)
-    del sweep_iter
-
-
     if retrigger_sweep:
         # Sweep once per actual note.
         # Note: rests should not retrigger sweep, only continue or stop sweep.
-        def is_note_trigger(e: INote):
-            return isinstance(e, Note)
 
-        for note_and_trailing in split_before(notes, is_note_trigger):
-            _put_single_sweep(self, state, meta, sweep_list, sweep_ntick, note_and_trailing)
+        for note_and_trailing in split_before(notes, _is_note_trigger):
+            _put_single_sweep(self, state, meta, sweeps, note_and_trailing)
     else:
         # Sweep continuously across all notes.
-        _put_single_sweep(self, state, meta, sweep_list, sweep_ntick, notes)
+        _put_single_sweep(self, state, meta, sweeps, notes)
 
     # Cleanup: disable legato and detune.
     if state.is_legato:
@@ -1734,24 +1730,41 @@ def _put_sweep(
     self.put_hex(DETUNE, 0)
 
 
+def _is_note_trigger(e: INote):
+    return isinstance(e, Note)
+
+
+def _get_pitch(notes: List[INote]) -> Optional[int]:
+    for note in notes:
+        if isinstance(note, Note):
+            return note.midi_pitch
+    return None
+
+
 def _put_single_sweep(
         self: MMKParser,
         state: SweepState,
         meta: WavetableMetadata,
-        sweep_list: SweepList,
-        sweep_ntick: int,
+        sweeps: List[Sweepable],
         notes: List[INote],
 ):
     """ Note: If retriggering is enabled, each note will call this function
     with the same `sweep_list`, but different chunks of `notes`.
     So precompute `sweep_list` for a (dubious) efficiency boost.
     """
+
+    midi_pitch = _get_pitch(notes)
+
+    # Generate iterator of all SweepEvents.
+    sweep_iter: SweepIter = sweep_chain(sweeps, midi_pitch)
+    sweep_ntick = sum(sweep.ntick(midi_pitch) for sweep in sweeps)
+
     # Generate iterator of all Notes
     note_iter = note_chain(notes)
     note_ntick = sum(note.ntick for note in notes)
 
     # Overall event iterator.
-    time_event_iter = heapq.merge(sweep_list, note_iter, key=lambda tup: tup[0])
+    time_event_iter = heapq.merge(sweep_iter, note_iter, key=lambda tup: tup[0])
 
     #### Write notes.
 
@@ -1829,19 +1842,30 @@ def _put_single_sweep(
 ### %sweep{
 
 class LinearSweep(Sweepable):
-    def __init__(self, sweep: range, ntick: int):
+    def __init__(self, sweep: range, ntick: int, pitch_scaling: float, root_pitch: int):
         self.sweep = sweep  # Range of sweep
         self.nsweep = len(sweep)
 
-        self.ntick = ntick
+        self._ntick_unscaled = ntick
+        self.pitch_scaling = pitch_scaling
+        self.root_pitch = root_pitch
 
-    def __iter__(self) -> SweepIter:
+    def ntick(self, midi_pitch: Optional[int]) -> int:
+        """ ntick /= (f/f0) ** scaling """
+        dpitch = (midi_pitch - self.root_pitch)
+        freq_ratio = 2 ** (dpitch / 12)
+
+        return round(self._ntick_unscaled / freq_ratio ** self.pitch_scaling)
+
+    def iter(self, midi_pitch: Optional[int]) -> SweepIter:
         """ Unpitched linear sweep, with fixed endpoints and duration.
         Created using the `[a,b) time` notation.
         """
         prev_tick = -1
+        ntick = self.ntick(midi_pitch)
+
         for sweep_idx in range(self.nsweep):
-            tick = ceildiv(sweep_idx * self.ntick, self.nsweep)
+            tick = ceildiv(sweep_idx * ntick, self.nsweep)
             if tick > prev_tick:
                 event = SweepEvent(self.sweep[sweep_idx], None)
                 yield (tick, event)
@@ -1853,10 +1877,16 @@ def parse_parametric_sweep(self: MMKParser, is_legato: bool,
                            retrigger_sweep: bool = False):
     """ Read parameters, and print a sweep with fixed duration.
 
-    sweep{ "name"
-        TODO: =   # in real time
+    %sweep{ "name"
         [begin,end) beats   # Increasing intervals have step 1.
         [,end] beats        # Decreasing intervals have step -1.
+        [begin,end) beats ~scaling
+            # Notes above/below av have speed multiplied by (f/f0) ** scaling.
+
+        TODO:
+        =       # `env_sub` ticks per wave.
+        =/3     # `env_sub*3` ticks per wave.
+        =/3 ~scaling    # Apply scaling to above.
         :
 
         # Duration in beats, separate from outside lxx events.
@@ -1887,9 +1917,18 @@ def parse_parametric_sweep(self: MMKParser, is_legato: bool,
         # Read sweep duration
         ntick, _ = stream.get_time()
 
+        # Read speed scaling exponent.
+        if stream.peek() == '~':
+            stream.skip_chars(1)
+            pitch_scaling = safe_eval(stream.get_word()[0], numbers.Real)
+        else:
+            pitch_scaling = 0
+
         sweeps.append(LinearSweep(
             sweep_range,
-            ntick
+            ntick,
+            pitch_scaling,
+            meta.root_pitch,
         ))
         stream.skip_spaces()
         # stream.skip_spaces(exclude=set(WHITESPACE) - set(ONLY_WHITESPACE))
