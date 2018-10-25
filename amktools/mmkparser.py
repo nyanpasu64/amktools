@@ -903,8 +903,13 @@ class MMKParser:
 
     # **** meh ****
 
-    def parse_comment(self):
-        self.put(self.stream.get_until(any_of('\n'), strict=False))
+    def parse_comment(self, put=True):
+        comment = self.stream.get_until(any_of('\n'), strict=False)
+        if put:
+            self.put(comment)
+
+    def skip_comment(self):
+        self.parse_comment(put=False)
 
     # Multi-word parsing
 
@@ -1833,6 +1838,9 @@ def parse_parametric_sweep(self: MMKParser):
 
         # noinspection PyUnreachableCode
         if False: pass
+
+        elif c == ';':
+            self.skip_comment()
 
         # octave
         elif c == 'o':
