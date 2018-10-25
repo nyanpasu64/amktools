@@ -265,6 +265,7 @@ class WavetableMetadata:
     wave_sub: int   # Each wave is repeated `wave_sub` times.
     env_sub: int    # Each volume/frequency entry is repeated `env_sub` times.
 
+    root_pitch: int
     pitches: List[float]
 
     tuning: int = field(init=False)
