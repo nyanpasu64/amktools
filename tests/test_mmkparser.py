@@ -371,6 +371,9 @@ def test_commands():
 
 %adsr -1,-1,-1,$0
 %exp $0
+
+%vmod 0.5 ; ensure %vmod applies to %vb
+%vb,0,128
 '''
     p = mmkparser.MMKParser(in_str, tuning)
     outstr = p.parse()
@@ -387,6 +390,9 @@ $fa $01 $e3
 
 $ed $7f $e0
 $ed $7f $e0
+
+; ensure %vmod applies to %vb
+$e8 $00 $40
 '''
 
 
