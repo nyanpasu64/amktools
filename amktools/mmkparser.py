@@ -1863,10 +1863,12 @@ class LinearSweep(Sweepable):
 
     def ntick(self, midi_pitch: Optional[int]) -> int:
         """ ntick /= (f/f0) ** scaling """
+        if midi_pitch is None:
+            return self._ntick_unscaled
+
         dpitch = (midi_pitch - self.root_pitch)
         freq_ratio = 2 ** (dpitch / 12)
-
-        return round(self._ntick_unscaled / freq_ratio ** self.pitch_scaling)
+        return round(self._ntick_unscaled / (freq_ratio ** self.pitch_scaling))
 
     def iter(self, midi_pitch: Optional[int]) -> SweepIter:
         """ Unpitched linear sweep, with fixed endpoints and duration.
