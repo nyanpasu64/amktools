@@ -1675,6 +1675,7 @@ def parse_wave_sweep(self: MMKParser):
 @dataclass
 class SweepState:
     is_legato: bool
+    is_detuned: bool
 
 
 def _put_sweep(
@@ -1718,7 +1719,7 @@ def _put_sweep(
     # Set coarse tuning
     self.put_hex(0xf3, self.silent_idx, meta.tuning)
 
-    state = SweepState(is_legato)
+    state = SweepState(is_legato, is_detuned=False)
     del is_legato
 
     # Enable legato
@@ -1739,7 +1740,8 @@ def _put_sweep(
     # Cleanup: disable legato and detune.
     if state.is_legato:
         self.put(LEGATO)   # Legato deactivates immediately.
-    self.put_hex(DETUNE, 0)
+    if state.is_detuned:
+        self.put_hex(DETUNE, 0)
 
 
 def _is_note_trigger(e: INote):
@@ -1838,8 +1840,11 @@ def _put_single_sweep(
                 sweep_pitch = int(event.pitch)
                 detune = event.pitch - sweep_pitch
 
+                detune_int = int(detune * 256)
+                state.is_detuned = (detune_int != 0)
+
                 # Write detune value immediately (begins at following note).
-                self.put_hex(DETUNE, int(detune * 256))
+                self.put_hex(DETUNE, detune_int)
 
         elif isinstance(event, Note):
             note_pitch = event.midi_pitch
