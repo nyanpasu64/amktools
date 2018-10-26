@@ -1928,7 +1928,14 @@ def parse_parametric_sweep(self: MMKParser, is_legato: bool,
 
     # Get sweep, duration pairs
     sweeps = []
+    stream.skip_spaces()
     while stream.peek() != ':':
+        # TODO unit test comments in header, especially skipping spaces.
+        if stream.peek() == ';':
+            self.skip_comment()
+            stream.skip_spaces()
+            continue
+
         sweep_str, _ = stream.get_word(ONLY_WHITESPACE)
         if sweep_str == '=':
             raise MMKError('sweep{ = at fixed rate is not supported yet')
