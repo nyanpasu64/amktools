@@ -1937,7 +1937,22 @@ def parse_parametric_sweep(self: MMKParser, is_legato: bool,
         sweep_range = parse_wave_range(sweep_str, meta.nwave)
 
         # Read sweep duration
-        ntick, _ = stream.get_time()
+        if stream.peek() == '>':
+            stream.get_char()
+            # Rate: wave or amount per tick
+            word, _ = stream.get_word()
+
+            if '/' in word or '.' in word:
+                wave_per_tick = parse_frac(word)
+            else:
+                wave_per_tick = int(word)
+            ntick = round(1 / wave_per_tick * len(sweep_range) / meta.nwave)
+        else:
+            ntick, _ = stream.get_time()
+
+        if ntick is None:
+            raise MMKError('failed to specify sweep time')
+
 
         # Read speed scaling exponent.
         if stream.peek() == '~':
