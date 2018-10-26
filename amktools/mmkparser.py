@@ -2042,6 +2042,10 @@ def parse_parametric_sweep(self: MMKParser, is_legato: bool,
                     'You must assign lxx within sweep{} before entering untimed notes')
 
             notes.append(Note(ntick, midi_pitch))
+        # ties
+        elif c == '^':
+            tie_ntick, _ = stream.get_time()
+            notes[-1].ntick += tie_ntick
 
         stream.skip_spaces()
 
