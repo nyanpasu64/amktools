@@ -207,7 +207,8 @@ def parse_wave_range(sweep_str: str, nwave: int) -> range:
             return parse_int_hex(s)
 
     # [Begin interval
-    if begin_str[0] != '[':
+    open_paren = begin_str[0]
+    if open_paren not in '[(':
         raise error
     begin_idx = _parse_ratio_or_int(begin_str[1:])
 
@@ -217,8 +218,10 @@ def parse_wave_range(sweep_str: str, nwave: int) -> range:
         raise error
     end_idx = _parse_ratio_or_int((end_str[:-1]))
 
-    # Make Python range() act like a closed interval.
+    # Python range() defaults to [x..y-1]. We can turn it into [x+1..y].
     delta = int(math.copysign(1, end_idx - begin_idx))
+    if open_paren == '(':
+        begin_idx += delta
     if close_paren == ']':
         end_idx += delta
 
