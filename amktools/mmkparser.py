@@ -1953,15 +1953,20 @@ def parse_parametric_sweep(self: MMKParser, is_legato: bool,
 
         # Read sweep duration
         if stream.peek() == '>':
+            # Rate: Fraction of all waves, per tick
             stream.get_char()
-            # Rate: wave or amount per tick
             word, _ = stream.get_word()
 
             if '/' in word or '.' in word:
-                wave_per_tick = parse_frac(word)
+                nwave_percent_per_tick = parse_frac(word)
             else:
-                wave_per_tick = int(word)
-            ntick = round(1 / wave_per_tick * len(sweep_range) / meta.nwave)
+                nwave_percent_per_tick = int(word)
+            ntick = round(1 / nwave_percent_per_tick * len(sweep_range) / meta.nwave)
+        elif stream.peek() == '*':
+            # One wave every X ticks
+            stream.get_char()
+            duration_mul = parse_frac(stream.get_word()[0])
+            ntick = round(meta.nwave * duration_mul)
         else:
             ntick, _ = stream.get_time()
 
