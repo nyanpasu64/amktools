@@ -96,232 +96,7 @@ BACKUP_ROOT = Path("wav2brr backups")
 BRR_SOURCE = Path("~brr")
 
 
-@click.command()
-@click.argument("wav_folder", type=Folder, callback=pathify)
-@click.argument("amk_folder", type=Folder, callback=pathify)
-@click.argument(
-    "sample_subfolder", type=click.Path(), callback=pathify
-)  # FIXME pick new name
-@click.option(*"sf2_file --sf2 -S".split(), type=click.File("rb"))
-@click.option(
-    *"decode_loops --decode-loops -D".split(), type=int, callback=ensure_positive
-)
-@click.option(*"verbose --verbose -v".split(), count=True)
-def main(
-    wav_folder: Path,
-    amk_folder: Path,
-    sample_subfolder: Path,
-    sf2_file: Optional[IO[bytes]],
-    decode_loops: Optional[int],
-    verbose: int,
-):
-
-    # Compute sample output folder
-
-    sample_root = (amk_folder / "samples").resolve()
-    sample_folder = (sample_root / sample_subfolder).resolve()
-
-    if sample_root not in sample_folder.parents:
-        raise click.BadParameter(
-            'Sample folder "{}" is not within "{}"\n\n'.format(
-                sample_subfolder, sample_root
-            )
-            + "If you use samples/ without a subfolder, all files will be cleared!\n"
-        )
-
-    if not sample_folder.exists():
-        print("Creating sample folder", sample_folder)
-        os.mkdir(str(sample_folder))
-
-    # Begin wav2brr setup
-
-    if decode_loops is None:
-        decode_loops = 1
-
-    opt = CliOptions(
-        verbose=verbose, sample_folder=str(sample_folder), decode_loops=decode_loops
-    )
-
-    if sf2_file is not None:
-        sf2 = Sf2File(sf2_file)
-        samples = sorted(
-            sf2.samples[:-1], key=lambda s: s.name
-        )  # type: List[Sf2Sample]
-        name2sample = {
-            sample.name: sample for sample in samples
-        }  # type: Dict[str, Sf2Sample]
-    else:
-        name2sample = {}
-
-    # Clear old samples
-    with pushd(sample_folder):
-        # BRR_BACKUP
-        backup_root = BACKUP_ROOT
-        backup_root.mkdir(exist_ok=True)
-
-        # file.brr or BRR_BACKUP
-        for old in Path().glob("*"):
-            if old.is_file():  # old != backup_root:
-                # remove BRR_BACKUP/file.brr
-                backup_dest = backup_root / old
-
-                rm_recursive(backup_dest, optional=True)
-                old.rename(backup_dest)
-
-    # Find all .cfg files, call convert_cfg()
-    tunings = {}
-    with pushd(wav_folder):
-        wav2brr_dir = Path(WAV2BRR_DIRNAME)
-        wav2brr_dir.mkdir(parents=True, exist_ok=True)
-
-        pwd = Path()
-
-        # Input folders: Current, plus all subdirs not starting with ~
-        folders = [pwd] + sorted(
-            x for x in pwd.iterdir() if x.is_dir() and "~" not in x.name
-        )
-
-        for folder in folders:
-            cfgs = sorted(x for x in folder.glob("*.cfg") if "~" not in x.name)
-
-            # Subfolders must contain exactly one .cfg each.
-            if folder != pwd and len(cfgs) != 1:
-                fnames = [cfg.name for cfg in cfgs]
-                raise ValueError(
-                    'folder "{}" must contain one .cfg, currently contains {}'.format(
-                        folder, fnames
-                    )
-                )
-
-            for cfg in cfgs:
-                cfg_path = str(cfg).replace("\\", "/")
-
-                # Create .brr, decode to .wav
-                name, tune = convert_cfg(opt, cfg_path, wav2brr_dir, name2sample)
-                tunings[name] = tune
-
-        # Copy over .brr files directly
-        for brr in BRR_SOURCE.glob("*.brr"):
-            shutil.copy(str(brr), opt.sample_folder)
-
-    with open(common.TUNING_PATH, "w") as f:
-        yaml.dump(tunings, f)
-
-
-# **** .cfg file parsing ****
-# Design: cwd == wav_folder. Subfolders are relative to Path().
-
-
-def convert_cfg(
-    opt: CliOptions,
-    cfg_path: str,
-    wav2brr_dir: Path,
-    name2sample: "Dict[str, Sf2Sample]",
-):
-    """
-    :return: (Path to BRR file, tuning string)
-    """
-    cfg_prefix = os.path.splitext(cfg_path)[0]  # folder/cfg
-    cfg_fname = os.path.basename(cfg_prefix)  # cfg
-
-    print("~~~~~", cfg_prefix, "~~~~")
-
-    try:
-        with open(cfg_path) as cfgfile:
-            cfg = AttrDict(eval(cfgfile.read()))
-
-        # Input WAV rate
-        rate = cfg.get("rate", None)  # Input WAV sampling rate
-        detune = cfg.get("detune", None)
-
-        # Resampling
-        ratio = cfg.get("ratio", 1)
-        resamp = cfg.get("resamp", None)
-
-        volume = cfg.get("volume", 1)
-        transpose = cfg.get("transpose", 0)
-        at = cfg.get("at", None)  # MIDI pitch of original note
-
-        # Exact AMK tuning (wavelength in 16-sample units)
-        tuning_ = cfg.get("tuning", None)
-
-        ncyc = cfg.get("ncyc", None)
-
-        # Load resampling settings.
-
-        if cfg_fname in name2sample:
-            sample = name2sample[cfg_fname]  # type: ISample
-            # sf2utils bug #2 treats negative pitch_correction as signed
-            sample.pitch_correction = ctypes.c_int8(sample.pitch_correction).value
-
-        else:
-            sample = WavSample()
-            sample.pitch_correction = 0
-            sample.name = cfg_fname
-            # All other attributes/fields default to None
-
-        # Transpose sample.
-
-        if transpose:
-            sample.original_pitch -= transpose
-
-        if detune is not None:
-            sample.pitch_correction = detune
-
-        if at is not None:
-            sample.original_pitch = at
-
-        # Loop sample.
-        # this is fucking fizzbuzz
-        if {"loop", "truncate"} & cfg.keys():
-            loop = truncate = None  # type: Optional[int]
-            if "loop" in cfg:
-                loop = cfg["loop"]
-            if "truncate" in cfg:
-                truncate = cfg["truncate"]
-        elif sample.start_loop == sample.end_loop:  # both 0 in vgmtrans sf2
-            loop = None
-            truncate = None
-        else:
-            loop = sample.start_loop
-            truncate = sample.end_loop
-
-        print(
-            f"MIDI at={sample.original_pitch}, detune={sample.pitch_correction} cents"
-        )
-
-        # Convert sample.
-
-        conv = Converter(opt, cfg_prefix, wav2brr_dir, transpose=transpose)
-        sample.sample_rate = rate or conv.rate
-
-        if resamp:
-            # Based off WAV sample rate (conv.rate), not override!
-            if ratio != 1:
-                raise ValueError("Cannot specify both `resamp` and `ratio`")
-            ratio = Fraction(resamp, conv.rate)
-        else:
-            ratio = Fraction(ratio)
-        brr_result = conv.convert(
-            ratio=ratio, loop=loop, truncate=truncate, volume=volume, decode=True
-        )
-        shutil.copy(conv.brr_path, opt.sample_folder)
-
-        tune = tuning.brr_tune(sample, brr_result, tuning_, ncyc)
-        print(cfg_fname, tune)
-
-        print()
-
-        return cfg_fname + BRR_EXT, tune
-
-    except Exception:
-        print("At file", cfg_prefix, file=sys.stderr)
-        raise
-
-
-# **** WAV to BRR conversion ****
-
-
+## WAV to BRR conversion
 def decimal_repr(num):
     # ugly, unnecessary, but it works.
 
@@ -499,3 +274,225 @@ class Converter:
             # print(brr_decoder[args]) is hard to read since it uses full EXE path
             print("brr_decoder", " ".join(args))
             print(decode_output.replace("\r", ""))
+
+
+## .cfg file parsing
+# Design: cwd == wav_folder. Subfolders are relative to Path().
+def convert_cfg(
+    opt: CliOptions,
+    cfg_path: str,
+    wav2brr_dir: Path,
+    name2sample: "Dict[str, Sf2Sample]",
+):
+    """
+    :return: (Path to BRR file, tuning string)
+    """
+    cfg_prefix = os.path.splitext(cfg_path)[0]  # folder/cfg
+    cfg_fname = os.path.basename(cfg_prefix)  # cfg
+
+    print("~~~~~", cfg_prefix, "~~~~")
+
+    try:
+        with open(cfg_path) as cfgfile:
+            cfg = AttrDict(eval(cfgfile.read()))
+
+        # Input WAV rate
+        rate = cfg.get("rate", None)  # Input WAV sampling rate
+        detune = cfg.get("detune", None)
+
+        # Resampling
+        ratio = cfg.get("ratio", 1)
+        resamp = cfg.get("resamp", None)
+
+        volume = cfg.get("volume", 1)
+        transpose = cfg.get("transpose", 0)
+        at = cfg.get("at", None)  # MIDI pitch of original note
+
+        # Exact AMK tuning (wavelength in 16-sample units)
+        tuning_ = cfg.get("tuning", None)
+
+        ncyc = cfg.get("ncyc", None)
+
+        # Load resampling settings.
+
+        if cfg_fname in name2sample:
+            sample = name2sample[cfg_fname]  # type: ISample
+            # sf2utils bug #2 treats negative pitch_correction as signed
+            sample.pitch_correction = ctypes.c_int8(sample.pitch_correction).value
+
+        else:
+            sample = WavSample()
+            sample.pitch_correction = 0
+            sample.name = cfg_fname
+            # All other attributes/fields default to None
+
+        # Transpose sample.
+
+        if transpose:
+            sample.original_pitch -= transpose
+
+        if detune is not None:
+            sample.pitch_correction = detune
+
+        if at is not None:
+            sample.original_pitch = at
+
+        # Loop sample.
+        # this is fucking fizzbuzz
+        if {"loop", "truncate"} & cfg.keys():
+            loop = truncate = None  # type: Optional[int]
+            if "loop" in cfg:
+                loop = cfg["loop"]
+            if "truncate" in cfg:
+                truncate = cfg["truncate"]
+        elif sample.start_loop == sample.end_loop:  # both 0 in vgmtrans sf2
+            loop = None
+            truncate = None
+        else:
+            loop = sample.start_loop
+            truncate = sample.end_loop
+
+        print(
+            f"MIDI at={sample.original_pitch}, detune={sample.pitch_correction} cents"
+        )
+
+        # Convert sample.
+
+        conv = Converter(opt, cfg_prefix, wav2brr_dir, transpose=transpose)
+        sample.sample_rate = rate or conv.rate
+
+        if resamp:
+            # Based off WAV sample rate (conv.rate), not override!
+            if ratio != 1:
+                raise ValueError("Cannot specify both `resamp` and `ratio`")
+            ratio = Fraction(resamp, conv.rate)
+        else:
+            ratio = Fraction(ratio)
+        brr_result = conv.convert(
+            ratio=ratio, loop=loop, truncate=truncate, volume=volume, decode=True
+        )
+        shutil.copy(conv.brr_path, opt.sample_folder)
+
+        tune = tuning.brr_tune(sample, brr_result, tuning_, ncyc)
+        print(cfg_fname, tune)
+
+        print()
+
+        return cfg_fname + BRR_EXT, tune
+
+    except Exception:
+        print("At file", cfg_prefix, file=sys.stderr)
+        raise
+
+
+## Command line
+@click.command()
+@click.argument("wav_folder", type=Folder, callback=pathify)
+@click.argument("amk_folder", type=Folder, callback=pathify)
+@click.argument(
+    "sample_subfolder", type=click.Path(), callback=pathify
+)  # FIXME pick new name
+@click.option(*"sf2_file --sf2 -S".split(), type=click.File("rb"))
+@click.option(
+    *"decode_loops --decode-loops -D".split(), type=int, callback=ensure_positive
+)
+@click.option(*"verbose --verbose -v".split(), count=True)
+def main(
+    wav_folder: Path,
+    amk_folder: Path,
+    sample_subfolder: Path,
+    sf2_file: Optional[IO[bytes]],
+    decode_loops: Optional[int],
+    verbose: int,
+):
+
+    # Compute sample output folder
+
+    sample_root = (amk_folder / "samples").resolve()
+    sample_folder = (sample_root / sample_subfolder).resolve()
+
+    if sample_root not in sample_folder.parents:
+        raise click.BadParameter(
+            'Sample folder "{}" is not within "{}"\n\n'.format(
+                sample_subfolder, sample_root
+            )
+            + "If you use samples/ without a subfolder, all files will be cleared!\n"
+        )
+
+    if not sample_folder.exists():
+        print("Creating sample folder", sample_folder)
+        os.mkdir(str(sample_folder))
+
+    # Begin wav2brr setup
+
+    if decode_loops is None:
+        decode_loops = 1
+
+    opt = CliOptions(
+        verbose=verbose, sample_folder=str(sample_folder), decode_loops=decode_loops
+    )
+
+    if sf2_file is not None:
+        sf2 = Sf2File(sf2_file)
+        samples = sorted(
+            sf2.samples[:-1], key=lambda s: s.name
+        )  # type: List[Sf2Sample]
+        name2sample = {
+            sample.name: sample for sample in samples
+        }  # type: Dict[str, Sf2Sample]
+    else:
+        name2sample = {}
+
+    # Clear old samples
+    with pushd(sample_folder):
+        # BRR_BACKUP
+        backup_root = BACKUP_ROOT
+        backup_root.mkdir(exist_ok=True)
+
+        # file.brr or BRR_BACKUP
+        for old in Path().glob("*"):
+            if old.is_file():  # old != backup_root:
+                # remove BRR_BACKUP/file.brr
+                backup_dest = backup_root / old
+
+                rm_recursive(backup_dest, optional=True)
+                old.rename(backup_dest)
+
+    # Find all .cfg files, call convert_cfg()
+    tunings = {}
+    with pushd(wav_folder):
+        wav2brr_dir = Path(WAV2BRR_DIRNAME)
+        wav2brr_dir.mkdir(parents=True, exist_ok=True)
+
+        pwd = Path()
+
+        # Input folders: Current, plus all subdirs not starting with ~
+        folders = [pwd] + sorted(
+            x for x in pwd.iterdir() if x.is_dir() and "~" not in x.name
+        )
+
+        for folder in folders:
+            cfgs = sorted(x for x in folder.glob("*.cfg") if "~" not in x.name)
+
+            # Subfolders must contain exactly one .cfg each.
+            if folder != pwd and len(cfgs) != 1:
+                fnames = [cfg.name for cfg in cfgs]
+                raise ValueError(
+                    'folder "{}" must contain one .cfg, currently contains {}'.format(
+                        folder, fnames
+                    )
+                )
+
+            for cfg in cfgs:
+                cfg_path = str(cfg).replace("\\", "/")
+
+                # Create .brr, decode to .wav
+                name, tune = convert_cfg(opt, cfg_path, wav2brr_dir, name2sample)
+                tunings[name] = tune
+
+        # Copy over .brr files directly
+        for brr in BRR_SOURCE.glob("*.brr"):
+            shutil.copy(str(brr), opt.sample_folder)
+
+    with open(common.TUNING_PATH, "w") as f:
+        yaml.dump(tunings, f)
