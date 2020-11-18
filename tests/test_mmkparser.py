@@ -13,22 +13,22 @@ from amktools import mmkparser
 
 
 def test_regex():
-    string = 'a' * 16 + 'cb'
+    string = "a" * 16 + "cb"
 
-    bc = mmkparser.any_of('bc')
+    bc = mmkparser.any_of("bc")
     match = bc.search(string)
     assert match
     assert match.start() == match.end() == 16
 
-    na = mmkparser.none_of('a')
+    na = mmkparser.none_of("a")
     match = na.search(string)
     assert match
     assert match.start() == match.end() == 16
 
 
-yaml = YAML(typ='safe')
+yaml = YAML(typ="safe")
 
-tuning = yaml.load(r'test.brr: $F0 $0F')
+tuning = yaml.load(r"test.brr: $F0 $0F")
 
 
 # MMKParser file path tests
@@ -44,16 +44,16 @@ def call_mmkparser(filename: Path, expected_ret: int) -> None:
     assert ret == expected_ret
 
 
-txt = Path('file.txt')
-mmk = Path('file.mmk')
-parse_output = 'parse_output'
+txt = Path("file.txt")
+mmk = Path("file.mmk")
+parse_output = "parse_output"
 
 
 def test_dont_overwrite_txt(mocker) -> None:
-    """ Ensures that mmkparser returns an error, instead of overwriting
-    foo.txt supplied as input. """
+    """Ensures that mmkparser returns an error, instead of overwriting
+    foo.txt supplied as input."""
 
-    mocker.patch.object(mmkparser.MMKParser, 'parse')
+    mocker.patch.object(mmkparser.MMKParser, "parse")
     mmkparser.MMKParser.parse.return_value = parse_output
 
     with CliRunner().isolated_filesystem():
@@ -63,7 +63,7 @@ def test_dont_overwrite_txt(mocker) -> None:
 def test_extension(mocker) -> None:
     """ Ensures that mmkparser parses foo.mmk to foo.txt."""
 
-    mocker.patch.object(mmkparser.MMKParser, 'parse')
+    mocker.patch.object(mmkparser.MMKParser, "parse")
     mmkparser.MMKParser.parse.return_value = parse_output
 
     with CliRunner().isolated_filesystem():
@@ -79,7 +79,7 @@ def test_extension(mocker) -> None:
 
 
 def test_amk_define():
-    in_str = ''';
+    in_str = """;
 %define value 1
 
 ; Ensure AMK keys are not parsed by MMK.
@@ -96,10 +96,12 @@ key10 abcdefg^l_v20
 ; Ensure replacements don't skip over following text.
 "cmd=c4"
 cmd %vmod,2 v50
-'''
+"""
     p = mmkparser.MMKParser(in_str, tuning)
     outstr = p.parse()
-    assert outstr == ''';
+    assert (
+        outstr
+        == """;
 
 
 ; Ensure AMK keys are not parsed by MMK.
@@ -116,11 +118,12 @@ key10 abcdefg^l_v20
 ; Ensure replacements don't skip over following text.
 "cmd=c4"
 cmd v100
-'''
+"""
+    )
 
 
 def test_spc_hash():
-    in_str = ''';
+    in_str = """;
 %vmod,2
 #path "no-equal-sign"
 #spc
@@ -129,10 +132,12 @@ def test_spc_hash():
 	#title	"y"
 }
 v50
-'''
+"""
     p = mmkparser.MMKParser(in_str, tuning)
     outstr = p.parse()
-    assert outstr == ''';
+    assert (
+        outstr
+        == """;
 
 #path "no-equal-sign"
 #spc
@@ -141,64 +146,75 @@ v50
 	#title	"y"
 }
 v100
-'''
+"""
+    )
+
 
 def test_define():
-    in_str = '''\
+    in_str = """\
 ;
 %define x 1
 %x
-'''
+"""
     p = mmkparser.MMKParser(in_str, tuning)
     outstr = p.parse()
-    assert outstr == '''\
+    assert (
+        outstr
+        == """\
 ;
 
 1
-'''
+"""
+    )
 
 
 @pytest.mark.xfail(strict=True)
 def test_define_failed():
-    in_str = '''\
+    in_str = """\
 ;
 %define x 1
 %define y v%x
 %y
-'''
+"""
     p = mmkparser.MMKParser(in_str, tuning)
     outstr = p.parse()
-    assert outstr == '''\
+    assert (
+        outstr
+        == """\
 ;
 
 
 v1
-'''
+"""
+    )
 
 
 def test_amk_commands():
-    in_str = ''';
+    in_str = """;
 %notelen on
 f1
 $f1
 q7f
 v100 %vmod,2 v100
 y10
-'''
+"""
     p = mmkparser.MMKParser(in_str, tuning)
     outstr = p.parse()
-    assert outstr == ''';
+    assert (
+        outstr
+        == """;
 
 f4
 $f1
 q7f
 v100 v200
 y10
-'''
+"""
+    )
 
 
 def test_notelen():
-    in_str = '''\
+    in_str = """\
 c4 c2 c1 c=48
 %notelen on
 
@@ -215,10 +231,12 @@ c=47
 
 %notelen off
 c4 c2 c1 c=48
-'''
+"""
     p = mmkparser.MMKParser(in_str, tuning)
     outstr = p.parse()
-    assert outstr == '''\
+    assert (
+        outstr
+        == """\
 c4 c2 c1 c=48
 
 
@@ -235,11 +253,12 @@ c=47
 
 
 c4 c2 c1 c=48
-'''
+"""
+    )
 
 
 def test_note_release():
-    in_str = ''';
+    in_str = """;
 %notelen on
 c1 ~/2c1 c1
 l1
@@ -253,10 +272,12 @@ c2 ~/2c2 c2
 ..=5 c1 c1
 ; Staccato .0 disables note release.
 ..0 c1
-'''
+"""
     p = mmkparser.MMKParser(in_str, tuning)
     outstr = p.parse()
-    assert outstr == ''';
+    assert (
+        outstr
+        == """;
 
 c4 c8r8 c4
 l4
@@ -270,13 +291,17 @@ c=5r=43 c4
 c=5r=43 c=5r=43
 ; Staccato .0 disables note release.
 c4
-'''
+"""
+    )
 
 
-@pytest.mark.parametrize('in_str', [
-    '%notelen on ~=5 l/2',  # Single-note form cannot be followed by lxx.
-    '%notelen on ~/2 c/2',
-])
+@pytest.mark.parametrize(
+    "in_str",
+    [
+        "%notelen on ~=5 l/2",  # Single-note form cannot be followed by lxx.
+        "%notelen on ~/2 c/2",
+    ],
+)
 def test_note_release_error(in_str):
     p = mmkparser.MMKParser(in_str, tuning)
     with pytest.raises(mmkparser.MMKError):
@@ -285,51 +310,57 @@ def test_note_release_error(in_str):
 
 
 def test_instruments():
-    in_str = '''#instruments
+    in_str = """#instruments
 {
     %tune "test.brr" $8F $E0 $00
     "test.brr" %adsr -1,-1,full,0 $01 $23
     %tune "test.brr" %adsr -1,-1,full,0
     %tune "test.brr" %exp 0
 }
-'''
+"""
     p = mmkparser.MMKParser(in_str, tuning)
     outstr = p.parse()
-    assert outstr.lower() == '''#instruments
+    assert (
+        outstr.lower()
+        == """#instruments
 {
     "test.brr" $8f $e0 $00 $f0 $0f
     "test.brr" $ff $e0 $a0 $01 $23
     "test.brr" $ff $e0 $a0 $f0 $0f
     "test.brr" $ff $e0 $a0 $f0 $0f
 }
-'''
+"""
+    )
 
 
 def test_instruments_comments():
-    """ %tune needs to stop before reaching comments or something. maybe
+    """%tune needs to stop before reaching comments or something. maybe
     trim off all trailing space and append after tuning bytes?"""
 
-    in_str = '''\
+    in_str = """\
 #instruments
 {
     %tune "test.brr" $8F $E0 $00    ; foo
 }
-'''
+"""
     p = mmkparser.MMKParser(in_str, tuning)
     outstr = p.parse()
 
     # Ideally I'd put the spaces *after* the tuning, but that's hard.
-    assert outstr.lower() == '''\
+    assert (
+        outstr.lower()
+        == """\
 #instruments
 {
     "test.brr" $8f $e0 $00     $f0 $0f; foo
 }
-'''
+"""
+    )
 
 
 def test_instrument_names():
     # Do not place %tune before %instr, it breaks named instruments.
-    in_str = '''\
+    in_str = """\
 #instruments
 {
     %instr %tune "test.brr" %adsr -1,-1,full,0
@@ -339,10 +370,12 @@ def test_instrument_names():
 %test
 %test2
 %test3
-'''
+"""
     p = mmkparser.MMKParser(in_str, tuning)
     outstr = p.parse()
-    assert outstr.lower() == '''\
+    assert (
+        outstr.lower()
+        == """\
 #instruments
 {
     "test.brr" $ff $e0 $a0 $f0 $0f
@@ -352,13 +385,14 @@ def test_instrument_names():
 @30
 @31
 @32
-'''
+"""
+    )
 
 
 # TODO parameterize
 def test_commands():
     # TODO adsr/exp
-    in_str = ''';
+    in_str = """;
 %vbend,4,255\t
 %ybend 4 20\t
 
@@ -374,10 +408,12 @@ def test_commands():
 
 %vmod 0.5 ; ensure %vmod applies to %vb
 %vb,0,128
-'''
+"""
     p = mmkparser.MMKParser(in_str, tuning)
     outstr = p.parse()
-    assert outstr.lower() == ''';
+    assert (
+        outstr.lower()
+        == """;
 $e8 $c0 $ff\t
 $dc $c0 $14\t
 
@@ -393,11 +429,12 @@ $ed $7f $e0
 
 ; ensure %vmod applies to %vb
 $e8 $00 $40
-'''
+"""
+    )
 
 
 def test_hex_only():
-    in_str = '''\
+    in_str = """\
 %adsr -1,-1,-1,1f
 %exp 1f
 %gain,exp,1f
@@ -405,10 +442,12 @@ def test_hex_only():
 %adsr -1,-1,-1,$1f
 %exp $1f
 %gain,exp,$1f
-'''
+"""
     p = mmkparser.MMKParser(in_str, tuning)
     outstr = p.parse()
-    assert outstr.lower() == '''\
+    assert (
+        outstr.lower()
+        == """\
 $ed $7f $ff
 $ed $7f $ff
 $fa $01 $bf
@@ -416,12 +455,13 @@ $fa $01 $bf
 $ed $7f $ff
 $ed $7f $ff
 $fa $01 $bf
-'''
+"""
+    )
 
     for err_str in [
-        '%adsr -1,-1,-1,10',
-        '%exp 10',
-        '%gain,exp,10',
+        "%adsr -1,-1,-1,10",
+        "%exp 10",
+        "%gain,exp,10",
     ]:
         p = mmkparser.MMKParser(err_str, tuning)
         with pytest.raises(mmkparser.MMKError):
@@ -443,10 +483,10 @@ def metadata():
 def test_sweep():
     """ FIXME find a less brittle way to test unrolled output. """
     meta_dict = {
-        'untrunc': metadata(),
-        'truncSilent': metadata(),
+        "untrunc": metadata(),
+        "truncSilent": metadata(),
     }
-    in_str = '''\
+    in_str = """\
 #samples
 {
 	%silent "silent.brr"
@@ -459,14 +499,18 @@ def test_sweep():
 	%wave_group "untrunc" $00 $00 $00; make sure comments work
 	%wave_group "truncSilent" $00 $00 $00
 }
-'''
+"""
     p = mmkparser.MMKParser(in_str, tuning, meta_dict)
     outstr = p.parse()
 
     # %wave_group produces "ugly" missing indentation, so ignore all whitespace.
     words = outstr.lower().split()
-    tune_val = f'${metadata().nsamp//16:02} $00'
-    assert words == '\n'.join([f'''\
+    tune_val = f"${metadata().nsamp//16:02} $00"
+    assert (
+        words
+        == "\n".join(
+            [
+                f"""\
 #samples
 {{
 	"silent.brr"
@@ -481,19 +525,24 @@ def test_sweep():
 	"untrunc-001.brr" $00 $00 $00 {tune_val}
 	"truncSilent-000.brr" $00 $00 $00 {tune_val}
 }}
-#0''']).lower().split()
+#0"""
+            ]
+        )
+        .lower()
+        .split()
+    )
 
 
 def test_parametric_sweep():
-    pass    # TODO
+    pass  # TODO
 
 
 def test_terminator():
     """ Ensures commands (words) can be terminated by ] without whitespace. """
-    in_str = '[%gain direct $03]\n'
+    in_str = "[%gain direct $03]\n"
     p = mmkparser.MMKParser(in_str, None)
     out = p.parse()
-    assert out.lower() == '[$fa $01 $03]\n'
+    assert out.lower() == "[$fa $01 $03]\n"
 
 
 # after adding ADSR: `%tune "test.brr" %adsr w x y z`
@@ -501,42 +550,45 @@ def test_terminator():
 
 # Edge cases and error-handling
 
+
 def test_strip():
-    in_str = '\n\n\n; foo\n; bar\n\n\n\n\n'
+    in_str = "\n\n\n; foo\n; bar\n\n\n\n\n"
     p = mmkparser.MMKParser(in_str, None)
     out = p.parse()
-    assert out == in_str.strip() + '\n'
+    assert out == in_str.strip() + "\n"
 
 
 def test_error():
-    in_str = '%asdfasdf ; ; ; ; ; ; ; ; ;'
-    with mock.patch('sys.stderr', new=io.StringIO()) as fake:  # type: io.StringIO
+    in_str = "%asdfasdf ; ; ; ; ; ; ; ; ;"
+    with mock.patch("sys.stderr", new=io.StringIO()) as fake:  # type: io.StringIO
         p = mmkparser.MMKParser(in_str, None)
         with pytest.raises(mmkparser.MMKError):
             p.parse()
 
     val = fake.getvalue()  # type: str
-    assert 'asdfasdf' in val
+    assert "asdfasdf" in val
 
 
 def test_error_at_eof():
-    in_str = '%asdfasdf'
-    with mock.patch('sys.stderr', new=io.StringIO()) as fake:  # type: io.StringIO
+    in_str = "%asdfasdf"
+    with mock.patch("sys.stderr", new=io.StringIO()) as fake:  # type: io.StringIO
         p = mmkparser.MMKParser(in_str, None)
         with pytest.raises(mmkparser.MMKError):
             p.parse()
 
     val = fake.getvalue()  # type: str
-    assert 'asdfasdf' in val
+    assert "asdfasdf" in val
 
 
-@pytest.mark.parametrize('in_str', [
-    '%reset',
-    'v128'
-    '"L=y15"',  # string replacements are treated as short streams
-    '%notelen on l4 c',
-    '; comment at eof'
-])
+@pytest.mark.parametrize(
+    "in_str",
+    [
+        "%reset",
+        "v128" '"L=y15"',  # string replacements are treated as short streams
+        "%notelen on l4 c",
+        "; comment at eof",
+    ],
+)
 def test_eof(in_str):
     p = mmkparser.MMKParser(in_str, None)
     p.parse()

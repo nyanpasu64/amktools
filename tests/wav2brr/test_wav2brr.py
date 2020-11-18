@@ -10,20 +10,19 @@ from click.testing import CliRunner
 
 from amktools import wav2brr
 
-WAV = 'lol wav'
-AMK = '../lol addmusic'
-SAMPLE = 'lol sample'
+WAV = "lol wav"
+AMK = "../lol addmusic"
+SAMPLE = "lol sample"
 
-AMK_SAMPLES = Path(AMK, 'samples')
-PROJECT = 'project'
+AMK_SAMPLES = Path(AMK, "samples")
+PROJECT = "project"
 
 
-
-@pytest.fixture(scope='function')
+@pytest.fixture(scope="function")
 def filesystem_tree():
-    """ Creates an isolated filesystem tree, with proper directory structure.
+    """Creates an isolated filesystem tree, with proper directory structure.
     isolated_filesystem is effectively a static method, so yielding `runner`
-    is unnecessary! """
+    is unnecessary!"""
     runner = CliRunner()
     with runner.isolated_filesystem():
         mkdir(PROJECT)
@@ -39,7 +38,7 @@ def filesystem_tree():
 
 
 def test_pushd():
-    SUB = 'sub~folder'
+    SUB = "sub~folder"
 
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -75,35 +74,41 @@ Arguments:
 Calls: Converter
 Output: ./tuning.yaml
 """
+
+
 def test_sample_dir(filesystem_tree):
     runner = CliRunner()
 
     # Valid sample path
     result = runner.invoke(wav2brr.main, [WAV, AMK, SAMPLE], catch_exceptions=False)
     assert result.exit_code == 0
-    assert 'Creating sample folder' in result.output
-    assert Path(AMK, 'samples', SAMPLE).exists()
-    assert Path('tuning.yaml').exists()
-        # TODO validate contents
+    assert "Creating sample folder" in result.output
+    assert Path(AMK, "samples", SAMPLE).exists()
+    assert Path("tuning.yaml").exists()
+    # TODO validate contents
 
     # Ensure existing files are backed up, not deleted
-    assert '/' not in str(wav2brr.BACKUP_ROOT)
+    assert "/" not in str(wav2brr.BACKUP_ROOT)
     sample_dir = AMK_SAMPLES / SAMPLE
 
     for i in range(2):  # Ensure backups are overwritten without errors
-        with is_moved(sample_dir, 'file', 'touch', True), \
-             is_moved(sample_dir, 'directory', 'mkdir', False):
-            result = runner.invoke(wav2brr.main, [WAV, AMK, SAMPLE], catch_exceptions=False)
+        with is_moved(sample_dir, "file", "touch", True), is_moved(
+            sample_dir, "directory", "mkdir", False
+        ):
+            result = runner.invoke(
+                wav2brr.main, [WAV, AMK, SAMPLE], catch_exceptions=False
+            )
             assert result.exit_code == 0
-            assert 'Creating sample folder' not in result.output
+            assert "Creating sample folder" not in result.output
 
     # Invalid sample path (attempting to mangle sample-root folder)
     with pytest.raises(click.BadParameter):
         # click is weird.
         # catch_exceptions=False stops the test runner from eating exceptions.
         # standalone_mode=False stops main() from pretty-printing BadParameter.
-        runner.invoke(wav2brr.main, [WAV, AMK, '.'], catch_exceptions=False,
-                      standalone_mode=False)
+        runner.invoke(
+            wav2brr.main, [WAV, AMK, "."], catch_exceptions=False, standalone_mode=False
+        )
 
 
 # def test_main():
@@ -113,24 +118,24 @@ def test_sample_dir(filesystem_tree):
 # Source: wav_folder
 # Destination: amk_folder/samples/sample_subfolder
 
-@pytest.mark.skipif(os.name != 'nt',
-                    reason='test deadlocks when calling Wine process')
-@pytest.mark.parametrize("cfg_name,expected", [
-    ('test.cfg', '$08 $00'),
-    ('test2.cfg', '$03 $80'),
-])
+
+@pytest.mark.skipif(os.name != "nt", reason="test deadlocks when calling Wine process")
+@pytest.mark.parametrize(
+    "cfg_name,expected",
+    [
+        ("test.cfg", "$08 $00"),
+        ("test2.cfg", "$03 $80"),
+    ],
+)
 def test_cfg(cfg_name, expected):
     # FIXME tends to deadlock when running under Linux via Wine
 
     wav2brr_dir = Path(tempfile.mkdtemp())
     brr_dir = tempfile.mkdtemp()
 
-    opt = wav2brr.CliOptions(
-        verbose=2,
-        sample_folder=brr_dir,
-        decode_loops=1)
+    opt = wav2brr.CliOptions(verbose=2, sample_folder=brr_dir, decode_loops=1)
 
-    cfg_path = Path(__file__, '..', cfg_name).resolve()
+    cfg_path = Path(__file__, "..", cfg_name).resolve()
     brr_path, tuning = wav2brr.convert_cfg(opt, str(cfg_path), wav2brr_dir, {})
 
     assert tuning == expected

@@ -18,10 +18,10 @@ def note2pitch(note, cents=0):
 
 
 def brr_tune(
-        sample: '_ISample',
-        brr_result: 'BrrResult',
-        tuning: Optional[float],
-        ncyc: Optional[float],
+    sample: "_ISample",
+    brr_result: "BrrResult",
+    tuning: Optional[float],
+    ncyc: Optional[float],
 ) -> Optional[str]:
     if tuning is not None:
         tuning = tuning * brr_result.ratio
@@ -51,5 +51,5 @@ def brr_tune(
     # 8.8 fixed-point value = 256*tuning + fraction
     tuning_int = round(tuning * 256)
 
-    tune_str = '$%02x $%02x' % (tuning_int // 256, tuning_int % 256)
+    tune_str = "$%02x $%02x" % (tuning_int // 256, tuning_int % 256)
     return tune_str

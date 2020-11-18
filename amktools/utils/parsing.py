@@ -29,24 +29,25 @@ def _safe_eval(node, variables, functions):
         return op(left, right)
     elif isinstance(node, ast.Call):
         assert not node.keywords and not node.starargs and not node.kwargs
-        assert isinstance(node.func, ast.Name), 'Unsafe function derivation'
+        assert isinstance(node.func, ast.Name), "Unsafe function derivation"
         func = functions[node.func.id]  # KeyError -> Unsafe function
         args = [_safe_eval(arg, variables, functions) for arg in node.args]
         return func(*args)
 
-    assert False, 'Unsafe operation'
+    assert False, "Unsafe operation"
 
 
 # https://stackoverflow.com/a/20748308
 # ast.literal_eval allows addition but bans multiplication.
 # literal_eval(repr(1+2j)) == 1+2j
-T = TypeVar('T')
+T = TypeVar("T")
+
 
 def safe_eval(expr: Union[str, T], ret_type: Type[T], variables={}, functions={}) -> T:
     if not isinstance(expr, str):
         return check(expr, ret_type)
 
-    node = ast.parse(expr, '<string>', 'eval').body
+    node = ast.parse(expr, "<string>", "eval").body
     ret = _safe_eval(node, variables, functions)
 
     return check(ret, ret_type)
@@ -54,5 +55,5 @@ def safe_eval(expr: Union[str, T], ret_type: Type[T], variables={}, functions={}
 
 def check(val, ret_type):
     if ret_type and not isinstance(val, ret_type):
-        raise TypeError(f'invalid expression {expr}, not type {ret_type}')
+        raise TypeError(f"invalid expression {expr}, not type {ret_type}")
     return val
