@@ -2,6 +2,9 @@ from typing import Union
 
 from sf2utils.sample import Sf2Sample as _Sf2Sample
 
+from dataclasses import dataclass
+from typing import Optional
+
 
 class AttrDict(dict):
     def __init__(self, seq=None, **kwargs):
@@ -12,17 +15,17 @@ class AttrDict(dict):
         self.__dict__ = self
 
 
+@dataclass
 class WavSample:
-    def __init__(self):
-        self.name = None
+    name: Optional[str] = None
 
-        self.start = None
-        self.end = None
-        self.start_loop = None
-        self.end_loop = None
-        self.sample_rate = None
-        self.original_pitch = None
-        self.pitch_correction = None
+    start: Optional[int] = None
+    end: Optional[int] = None
+    start_loop: Optional[int] = None
+    end_loop: Optional[int] = None
+    sample_rate: Optional[int] = None
+    original_pitch: Optional[int] = None
+    pitch_correction: Optional[int] = None
 
     @property
     def duration(self):

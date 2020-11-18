@@ -1,5 +1,9 @@
 # wav2brr Tutorial
 
+**This file is outdated. wav2brr's command line has changed.** It now processes one sample at a time, with both input and output passed in through the CLI. It expects to be invoked by an external tool like Ninja, which is responsible for only running wav2brr when the inputs have changed, saving time during builds when samples have not been changed.
+
+------
+
 I assume your project tree is setup this way. (This is not necessary, you can rearrange your tree however you like, as long as you tell wav2brr via command-line arguments.)
 
 - ZMM Final Hours
@@ -28,6 +32,7 @@ Each .cfg file is evaluated as a Python expression using `eval()`. You can use a
 
 - `volume`: Multiplies volume by this number (useful to reduce clipping from [anti-Gaussian prefiltering] and [resampling]).
 - `ratio`: Resampling ratio (output rate / input rate). `0.5` and `1/2` all produce a half-size sample. If you have OCD or are debugging this program, adding quotes prevents rounding within Python (but brr_encoder rounds anyway).
+- `target_rate`: Target sampling rate, that the sample will be resampled to. Cannot be used with `ratio`.
 - `at`: MIDI pitch of .wav file
 - `loop` (optional): Loop point (in samples). Hexadecimal values `0x000038AB` work without modification.
     + Omit to disable looping.
