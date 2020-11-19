@@ -73,28 +73,6 @@ class CliOptions:
     decode_loops: int
 
 
-Folder = click.Path(exists=True, file_okay=False)
-
-
-def ensure_positive(_ctx, param, value):
-    if value is None:
-        return value
-    elif value >= 1:
-        return value
-    else:
-        raise click.BadParameter("%s must be positive" % param)
-
-
-def pathify(_ctx, _param, value):
-    return Path(value)
-
-
-def pathify_maybe(_ctx, _param, value):
-    if value is None:
-        return None
-    return pathify(_ctx, _param, value)
-
-
 def decimal_repr(num):
     # ugly, unnecessary, but it works.
 
@@ -387,6 +365,28 @@ TODO --tuning-format=amk|c700
 amk = write 2 bytes
 c700 = write (root key: int, sampling rate: float)
 """
+
+
+Folder = click.Path(exists=True, file_okay=False)
+
+
+def ensure_positive(_ctx, param, value):
+    if value is None:
+        return value
+    elif value >= 1:
+        return value
+    else:
+        raise click.BadParameter("%s must be positive" % param)
+
+
+def pathify(_ctx, _param, value):
+    return Path(value)
+
+
+def pathify_maybe(_ctx, _param, value):
+    if value is None:
+        return None
+    return pathify(_ctx, _param, value)
 
 
 @click.command()
