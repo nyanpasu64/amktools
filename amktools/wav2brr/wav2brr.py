@@ -167,6 +167,7 @@ class ConvertSession:
     def convert(
         self,
         ratio: Fraction,
+        resample_mode: str,
         loop: Optional[int],
         truncate: Optional[int],
         volume: Fraction,
@@ -183,12 +184,12 @@ class ConvertSession:
         """
         opt = self.opt
 
-        args = []
+        args: List[str] = []
 
         if True:
             args += ["-g"]
 
-        args += [self.wav_path, self.brr_path]
+        args += [str(self.wav_path), str(self.brr_path)]
 
         if NOWRAP:
             args[0:0] = ["-w"]
@@ -207,7 +208,7 @@ class ConvertSession:
         NOTE: Default linear interpolation is simple, but is garbage at
         preserving high frequencies.
         """
-        args[0:0] = ["-rb" + decimal_repr(1 / ratio)]
+        args[0:0] = ["-r" + resample_mode + decimal_repr(1 / ratio)]
 
         # Attenuate volume
         if volume != 1:
@@ -253,7 +254,7 @@ class ConvertSession:
 
         rate = self.get_rate() * ratio * note2ratio(self.transpose)
         decoded_path = str(self.brr_dir / (self.brr_stem + " decoded.wav"))
-        args = ["-s" + decimal_repr(rate), self.brr_path, decoded_path]
+        args: List[str] = ["-s" + decimal_repr(rate), str(self.brr_path), decoded_path]
         if loop_idx is not None:
             args[:0] = ["-l{}".format(loop_idx), "-n{}".format(opt.decode_loops)]
         decode_output = brr_decoder[args]()
@@ -286,6 +287,7 @@ def convert_cfg(
     # Resampling
     ratio = cfg.get("ratio", 1)
     target_rate = cfg.get("target_rate", None)
+    resample_mode = cfg.get("resample_mode", "b")
 
     volume = cfg.get("volume", 1)
     transpose = cfg.get("transpose", 0)
@@ -350,9 +352,7 @@ def convert_cfg(
         ratio = Fraction(target_rate, conv.rate)
     else:
         ratio = Fraction(ratio)
-    brr_result = conv.convert(
-        ratio=ratio, loop=loop, truncate=truncate, volume=volume, decode=True
-    )
+    brr_result = conv.convert(ratio, resample_mode, loop, truncate, volume, decode=True)
 
     tune = tuning.brr_tune(sample, brr_result, tuning_, ncyc)
     print("tuning:", tune)
